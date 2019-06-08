@@ -17,11 +17,10 @@
 
  ; Strips newlines from a parameter that might line-wrap.
  clean-param
- ; Use these within your note tag to let this citation system transform
+ ; Use this within your note tag to let this citation system transform
  ; the citations it created with 'cite' into back-references or to include
  ; short forms.
- transform-full-cites-into-backrefs
- transform-short-form-placeholder
+ transform-cite-in-a-note
  ; Use during the final decode (txexpr-proc) to insert short-forms where
  ; they're needed.
  show-necessary-short-forms)
@@ -640,6 +639,11 @@
             tx)
         )
       tx))
+
+; This does the transformations that are needed for any cites found within a note context.
+(define/contract (transform-cite-in-a-note tx footnote-number)
+  (txexpr? exact-nonnegative-integer? . -> . txexpr?)
+  (transform-short-form-placeholder (transform-full-cites-into-backrefs tx footnote-number)))
 
 ; To be called during your Pollen module's final decode.
 ; This sweeps through all short-form placeholders (which are empty spans before this point)

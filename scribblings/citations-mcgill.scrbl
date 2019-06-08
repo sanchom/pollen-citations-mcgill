@@ -20,9 +20,8 @@ module. It lets you:
 
 This requires the end-user/author to use
 @code[#:lang "pollen"]|{◊declare-work}| within their Pollen
-source code. It requires your Pollen project to make a call
-to a few transformer functions (provided by this module)
-within within its footnote tag context. This is in order
+source code. It requires your Pollen project to call two
+transformer functions (provided by this module). This is in order
 that this module be able to manage reference tracking and
 back-references for any citations that are rendered within
 that footnote context.
@@ -171,10 +170,8 @@ is mutated upon each call to @racket[note].
 
 @racketblock[
  (define transformed-content
-   (decode-elements
-    content
-    #:txexpr-proc (compose1 transform-short-form-placeholder
-                            (λ (x) (transform-full-cites-into-backrefs x footnote-number)))))
+   (decode-elements content
+                    #:txexpr-proc (λ (x) (transform-cite-in-a-note x footnote-number))))
  ]
 
 The resulting @racket[transformed-content] is what you
