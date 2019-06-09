@@ -26,7 +26,6 @@
  ; they're needed.
  show-necessary-short-forms)
 
-(require racket/random)
 (require pollen/core)
 (require racket/contract)
 (require txexpr)
