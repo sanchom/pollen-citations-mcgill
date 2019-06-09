@@ -113,6 +113,59 @@
   (check-equal? (normalize-pinpoint "cls 2--3") ", cls 2--3")
   )
 
+(define/contract (year-is-necessary? citation)
+  (string? . -> . boolean?)
+  ; Are the first alphanumeric characters in the citation a four-digit year? Ie. Is there a sequence of four consecutive
+  ; digits before any letter?
+  (not (regexp-match? #px"[[:digit:]]{4}" (first (regexp-match #px"\\S*[[:space:]]" citation)))))
+
+(module+ test
+  (check-true (year-is-necessary? "301 DLR (4th) 34"))
+  (check-false (year-is-necessary? "[1977] 1 SCR 193"))
+  (check-false (year-is-necessary? "2012 SCC 1")))
+
+(define/contract (clean-param param)
+  ((or/c string? #f) . -> . (or/c string? #f))
+  (if param (string-normalize-spaces param) param))
+
+(module+ test
+  (check-false (clean-param #f))
+  (check-exn exn:fail? (lambda () (clean-param #t)))
+  (check-equal? (clean-param "multi-line\nargument") "multi-line argument"))
+
+(define/contract (get-given-from-author author)
+  (string? . -> . string?)
+  (define parts (string-split (clean-param author)))
+  (if (not (equal? (length parts) 2))
+      (raise-user-error "Specified an author (a shortcut keyword) that has fewer or more than two parts: " author)
+      (first parts)))
+
+(define/contract (get-family-from-author author)
+  (string? . -> . string?)
+  (define parts (string-split (clean-param author)))
+  (if (not (equal? (length parts) 2))
+      (raise-user-error "Specified an author (a shortcut keyword) that has fewer or more than two parts: " author)
+      (second parts)))
+
+(module+ test
+  (check-equal? (get-given-from-author "Sancho McCann") "Sancho")
+  (check-equal? (get-family-from-author "Sancho McCann") "McCann")
+  (check-exn exn:fail? (lambda () (get-given-from-author "Sancho J McCann")))
+  (check-exn exn:fail? (lambda () (get-family-from-author "Sancho J McCann")))
+  (check-exn exn:fail? (lambda () (get-given-from-author "Sancho")))
+  (check-exn exn:fail? (lambda () (get-family-from-author "Sancho"))))
+
+(define/contract (extract-first-page pages)
+  (string? . -> . string?)
+  (first (regexp-match #rx"[0-9]+" pages)))
+
+(module+ test
+  (check-equal? (extract-first-page "1--10") "1")
+  (check-equal? (extract-first-page "10") "10")
+  (check-equal? (extract-first-page "11--101") "11")
+  (check-equal? (extract-first-page "11---101") "11")
+  (check-equal? (extract-first-page "11-101") "11"))
+
 ; TODO: Can this be a contract?
 (define (validate-work-or-die w)
   (validate-short-form w)
@@ -213,11 +266,6 @@
        (raise-user-error "magazine/news is missing required field: " e)))
    mandatory-elements))
 
-(define (year-is-necessary? citation)
-  ; Are the first alphanumeric characters in the citation a four-digit year? Ie. Is there a sequence of four consecutive
-  ; digits before any letter?
-  (not (regexp-match? #px"[[:digit:]]{4}" (first (regexp-match #px"\\S*[[:space:]]" citation)))))
-
 (define (validate-legal-case w)
   (define mandatory-elements '(title citation))
   (for-each
@@ -243,24 +291,6 @@
     [("legal-case" "legal-case-US" "statute" "bill") `(em ,title)]
     [("magazine/news") `(span ,(when/splice author author ", “") ,title ,(when/splice author "”"))]
     [else `(span ,(when/splice author author ", “") ,title ,(when/splice author "”"))]))
-
-(define (clean-param param)
-  (if param (string-normalize-spaces param) param))
-
-(define (get-given-from-author author)
-  (define parts (string-split (clean-param author)))
-  (if (not (equal? (length parts) 2))
-      (raise-user-error "Specified an author (a shortcut keyword) with more than two parts: " author)
-      (first parts)))
-
-(define (get-family-from-author author)
-  (define parts (string-split (clean-param author)))
-  (if (not (equal? (length parts) 2))
-      (raise-user-error "Specified an author (a shortcut keyword) with more than two parts: " author)
-      (second parts)))
-
-(define (extract-first-page pages)
-  (first (regexp-match #rx"[0-9]+" pages)))
 
 (define (declare-work #:type type
                       #:id id
