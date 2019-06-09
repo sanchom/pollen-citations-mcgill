@@ -8,6 +8,9 @@
 
  ; Declares a work that can be then cited.
  declare-work
+ ; Alternate form for declare-work that doesn't accept an id. It renders the work in-place.
+ ; If you use this form, the work cannot be referred to later using 'cite'.
+ format-work
  ; Actually cites the work (returns a txexpr with the formatted citation).
  cite
 
@@ -37,6 +40,7 @@
 (define first-place-cited (make-hash))
 (define most-recent-ibid-or-supra #f)
 (define short-form-needed (make-hash))
+(define unidentified-work-count 0)
 
 ; Accessor
 (define/contract (get-work-by-id id)
@@ -261,7 +265,8 @@
 (define (extract-first-page pages)
   (first (regexp-match #rx"[0-9]+" pages)))
 
-(define (declare-work #:type [type #f]
+(define (declare-work #:type type
+                      #:id id
                       #:title [title #f]
                       #:author [author #f] ; a shortcut for simple "author-given author-family" names --- incompatible with author-given / author-family
                       #:author-given [author-given #f]
@@ -293,20 +298,17 @@
                       #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                       #:first-page [first-page #f]
                       #:url [url #f]
-                      #:short-form [short-form #f]
-                      #:id [id #f]
-                      #:and-render? [and-render? #f])
+                      #:short-form [short-form #f])
+  (define cleaned-id (clean-param id))
   (when (and author (or author-given author-family))
     (raise-user-error "You used #:author and either #:author-given or #:author-family. #:author is a substitute for the latter when the name is simple." `(,author ,author-given ,author-family)))
   (when (and year date)
     (raise-user-error "You specified both a year and a date. Use only one of these." `(,year ,date ,title)))
   (when (and pages first-page)
     (raise-user-error "You specified both pages and first-page. Use only one of these." `(,pages ,first-page)))
-  ; If id isn't specified, then just make a random one. This work will never be able to be cited.
-  (define id-to-use (if id (clean-param id) (clean-param (format "~a" (crypto-random-bytes 20)))))
-  (when (hash-has-key? work-metadata id-to-use) (raise-user-error "duplicate id" id-to-use))
+  (when (hash-has-key? work-metadata cleaned-id) (raise-user-error "duplicate id" cleaned-id))
   (define w (hash 'type type
-                  'id id-to-use
+                  'id cleaned-id
                   'title (clean-param title)
                   'author-given (if author (get-given-from-author author) (clean-param author-given))
                   'author-family (if author (get-family-from-author author) (clean-param author-family))
@@ -339,8 +341,80 @@
                                   `(span ,(style-title (clean-param short-form)))
                                   (make-short-form type (if author (get-family-from-author author) (clean-param author-family)) title))))
   (validate-work-or-die w)
-  (hash-set! work-metadata id-to-use w)
-  (when (and (not id) (not (equal? and-render? "no"))) (cite id-to-use)))
+  (hash-set! work-metadata cleaned-id w))
+
+; Just forward all arguments to declare-work, but this form does not accept
+; an id. It will return a txexpr to be rendered in-place.
+(define (format-work #:type type
+                     #:title [title #f]
+                     #:author [author #f] ; a shortcut for simple "author-given author-family" names --- incompatible with author-given / author-family
+                     #:author-given [author-given #f]
+                     #:author-family [author-family #f]
+                     #:author2-given [author2-given #f]
+                     #:author2-family [author2-family #f]
+                     #:author3-given [author3-given #f]
+                     #:author3-family [author3-family #f]
+                     #:journal [journal #f]
+                     #:year [year #f] ; alias for "date" --- incompatible with date
+                     #:date [date #f] ; alias for "year" --- incompatible with year
+                     #:volume [volume #f]
+                     #:publication [publication #f] ; for magazine/news
+                     #:issue [issue #f]
+                     #:citation [citation #f]
+                     #:jurisdiction [jurisdiction #f]
+                     #:institution [institution #f]
+                     #:legislative-body [legislative-body #f]
+                     #:number [number #f]
+                     #:chapter [chapter #f] ; for statutes
+                     #:reading [reading #f] ; for legislative debates
+                     #:proceedings [proceedings #f]
+                     #:publisher [publisher #f]
+                     #:publisher-location [publisher-location #f]
+                     #:thesis-description [thesis-description #f]
+                     #:description [description #f]
+                     #:comment-info [comment-info #f]
+                     #:forthcoming [forthcoming #f]
+                     #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
+                     #:first-page [first-page #f]
+                     #:url [url #f]
+                     #:short-form [short-form #f])
+  (define id (format "unidentified-work-~a" unidentified-work-count))
+  (set! unidentified-work-count (+ 1 unidentified-work-count))
+  (declare-work #:type type
+                #:id id
+                #:title title
+                #:author author
+                #:author-given author-given
+                #:author-family author-family
+                #:author2-given author2-given
+                #:author2-family author2-family
+                #:author3-given author3-given
+                #:author3-family author3-family
+                #:journal journal
+                #:year year
+                #:date date
+                #:volume volume
+                #:publication publication
+                #:issue issue
+                #:citation citation
+                #:jurisdiction jurisdiction
+                #:institution institution
+                #:legislative-body legislative-body
+                #:number number
+                #:chapter chapter
+                #:reading reading
+                #:proceedings proceedings
+                #:publisher publisher
+                #:publisher-location publisher-location
+                #:thesis-description thesis-description
+                #:description description
+                #:comment-info comment-info
+                #:forthcoming forthcoming
+                #:pages pages
+                #:first-page first-page
+                #:url url
+                #:short-form short-form)
+  (cite id))
 
 (define (style-title markedup-title)
   (define italic-range (regexp-match-positions #rx"\\*.*\\*" markedup-title))

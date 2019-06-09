@@ -37,9 +37,20 @@ described in @secref["integration"].
 
 @section{User/author tags}
 
-These are tags/functions that the ultimate author of a document will use in their source text.
+These are tags/functions that the ultimate author of a
+document will use in their source text.
 
-@defproc[(declare-work [#:type type string? #f]
+You need to provide them through your @filepath{pollen.rkt}
+like this:
+
+@racketblock[
+ (provide declare-work)
+ (provide format-work)
+ (provide cite)
+ ]
+
+@defproc[(declare-work [#:type type string?]
+                       [#:id id string?]
                        [#:title title (or/c string? #f) #f]
                        [#:author author (or/c string? #f) #f]
                        [#:author-given author-given (or/c string? #f) #f]
@@ -71,18 +82,10 @@ These are tags/functions that the ultimate author of a document will use in thei
                        [#:pages pages (or/c string? #f) #f] ; will extract the first-page from this; incompatible with first-page
                        [#:first-page first-page (or/c string? #f) #f]
                        [#:url url (or/c string? #f) #f]
-                       [#:short-form short-form (or/c string? #f) #f]
-                       [#:id id (or/c string? #f) #f]
-                       [#:and-render? and-render? (or/c string? boolean?) #f]) (or/c void? txexpr?)]{
+                       [#:short-form short-form (or/c string? #f) #f]) void?]{
 
- If @racket[id] is specified, then this call returns
- @racket[void] and this work can be cited to later using
- @racket[cite].
-
- If @racket[id] is not specified, then the author will never
- be able to cite this work using @racket[cite]. The call to
- @racket[declare-work] will also render a formatted citation
- in-place, unless @racket[and-render?] equals @racket["no"].
+ The @racket[id] is the string that users/authors can use to
+ cite this work using @racket[cite].
 
  @racket[type] must be one of "article", "thesis",
  "proceedings", "unpublished", "legal-case", "legal-case-US",
@@ -101,6 +104,48 @@ These are tags/functions that the ultimate author of a document will use in thei
  through examples.
 
  [TODO: document what fields are meaningful for each type of work.]
+
+}
+
+@defproc[(format-work [#:type type string?]
+                      [#:title title (or/c string? #f) #f]
+                      [#:author author (or/c string? #f) #f]
+                      [#:author-given author-given (or/c string? #f) #f]
+                      [#:author-family author-family (or/c string? #f) #f]
+                      [#:author2-given author2-given (or/c string? #f) #f]
+                      [#:author2-family author2-family (or/c string? #f) #f]
+                      [#:author3-given author3-given (or/c string? #f) #f]
+                      [#:author3-family author3-family (or/c string? #f) #f]
+                      [#:journal journal (or/c string? #f) #f]
+                      [#:year year (or/c string? #f) #f] ; alias for "date" --- incompatible with date
+                      [#:date date (or/c string? #f) #f] ; alias for "year" --- incompatible with year
+                      [#:volume volume (or/c string? #f)  #f]
+                      [#:publication publication (or/c string? #f) #f] ; for magazine/news
+                      [#:issue issue (or/c string? #f) #f]
+                      [#:citation citation (or/c string? #f) #f]
+                      [#:jurisdiction jurisdiction (or/c string? #f) #f]
+                      [#:institution institution (or/c string? #f) #f]
+                      [#:legislative-body legislative-body (or/c string? #f) #f]
+                      [#:number number (or/c string? #f) #f]
+                      [#:chapter chapter (or/c string? #f) #f] ; for statutes
+                      [#:reading reading (or/c string? #f) #f] ; for legislative debates
+                      [#:proceedings proceedings (or/c string? #f) #f]
+                      [#:publisher publisher (or/c string? #f) #f]
+                      [#:publisher-location publisher-location (or/c string? #f) #f]
+                      [#:thesis-description thesis-description (or/c string? #f) #f]
+                      [#:description description (or/c string? #f) #f]
+                      [#:comment-info comment-info (or/c string? #f) #f]
+                      [#:forthcoming forthcoming (or/c string? #f) #f]
+                      [#:pages pages (or/c string? #f) #f] ; will extract the first-page from this; incompatible with first-page
+                      [#:first-page first-page (or/c string? #f) #f]
+                      [#:url url (or/c string? #f) #f]
+                      [#:short-form short-form (or/c string? #f) #f]) txexpr?]{
+
+ Takes the exact same arguments as @racket[declare-work],
+ with the exception of @racket[id]. This function does not
+ accept an @racket[id]. Instead of making the work available
+ for later citing, this function just returns a formatted
+ citation in a @racket[txexpr].
 
 }
 
