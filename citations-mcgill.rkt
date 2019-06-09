@@ -18,8 +18,6 @@
  ; do the work it needs to do.
  ; ------------------------------------------------------------
 
- ; Strips newlines from a parameter that might line-wrap.
- clean-param
  ; Use this within your note tag to let this citation system transform
  ; the citations it created with 'cite' into back-references or to include
  ; short forms.
@@ -345,6 +343,7 @@
 
 ; Just forward all arguments to declare-work, but this form does not accept
 ; an id. It will return a txexpr to be rendered in-place.
+; TODO: Find a way to programmatically re-use these arguments.
 (define (format-work #:type type
                      #:title [title #f]
                      #:author [author #f] ; a shortcut for simple "author-given author-family" names --- incompatible with author-given / author-family
@@ -427,49 +426,54 @@
 
 ; Renders a full note-form of the work.
 (define (cite id #:supra [supra #f] #:ibid [ibid #f] #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+  (define c-pinpoint (clean-param pinpoint))
+  (define c-parenthetical (clean-param parenthetical))
+  (define c-judge (clean-param judge))
+  (define c-speaker (clean-param speaker))
+  (define c-signal (clean-param signal))
   (define w (hash-ref work-metadata (clean-param id)))
   (if ibid
-      `(span [[class "bibliography-entry"] [data-citation-id ,id]]
-             ,(when/splice signal signal " ")
-             ,(if signal `(em "ibid") `(em "Ibid"))
-             ,(when/splice parenthetical " (" parenthetical)
-             ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-             ,(when/splice judge ", " judge)
-             ,(when/splice parenthetical ")")
-             ,(when/splice speaker " (" speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
+      `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
+             ,(when/splice c-signal c-signal " ")
+             ,(if c-signal `(em "ibid") `(em "Ibid"))
+             ,(when/splice c-parenthetical " (" c-parenthetical)
+             ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
+             ,(when/splice c-judge ", " c-judge)
+             ,(when/splice c-parenthetical ")")
+             ,(when/splice c-speaker " (" c-speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
              ".")
       (if supra
-          `(span [[class "bibliography-entry"] [data-citation-id ,id]]
-                 ,(when/splice signal signal " ")
+          `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
+                 ,(when/splice c-signal c-signal " ")
                  ,(hash-ref w 'short-form) ", "
                  (em "supra") ,(format " note ~a" supra)
-                 ,(when/splice parenthetical " (" parenthetical)
-                 ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-                 ,(when/splice judge ", " judge)
-                 ,(when/splice parenthetical ")")
-                 ,(when/splice speaker " (" speaker ")")
+                 ,(when/splice c-parenthetical " (" c-parenthetical)
+                 ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
+                 ,(when/splice c-judge ", " c-judge)
+                 ,(when/splice c-parenthetical ")")
+                 ,(when/splice c-speaker " (" c-speaker ")")
                  ".")
           `(span [[class "bibliography-entry full-form-citation"]
-                  [data-citation-id ,id]
-                  [data-citation-pinpoint ,(if pinpoint pinpoint "false")]
-                  [data-citation-parenthetical ,(if parenthetical parenthetical "false")]
-                  [data-citation-judge ,(if judge judge "false")]
-                  [data-citation-speaker ,(if speaker speaker "false")]
-                  [data-citation-signal ,(if signal signal "false")]
+                  [data-citation-id ,(clean-param id)]
+                  [data-citation-pinpoint ,(if c-pinpoint c-pinpoint "false")]
+                  [data-citation-parenthetical ,(if c-parenthetical c-parenthetical "false")]
+                  [data-citation-judge ,(if c-judge c-judge "false")]
+                  [data-citation-speaker ,(if c-speaker c-speaker "false")]
+                  [data-citation-signal ,(if c-signal c-signal "false")]
                   ]
-                 ,(when/splice signal (format "~a " signal))
+                 ,(when/splice c-signal (format "~a " c-signal))
                  ,(case (hash-ref w 'type)
-                    [("article") (render-article w pinpoint parenthetical)]
-                    [("book") (render-book w pinpoint parenthetical)]
-                    [("thesis") (render-thesis w pinpoint parenthetical)]
-                    [("proceedings") (render-proceedings w pinpoint parenthetical)]
-                    [("unpublished") (render-unpublished w pinpoint parenthetical)]
-                    [("legal-case") (render-legal-case w pinpoint parenthetical judge)]
-                    [("legal-case-US") (render-legal-case-US w pinpoint parenthetical judge)]
-                    [("bill") (render-bill w pinpoint parenthetical)]
-                    [("statute") (render-statute w pinpoint parenthetical)]
-                    [("debate") (render-debate w pinpoint speaker)]
-                    [("magazine/news") (render-magazine/news w pinpoint parenthetical)]
+                    [("article") (render-article w c-pinpoint c-parenthetical)]
+                    [("book") (render-book w c-pinpoint c-parenthetical)]
+                    [("thesis") (render-thesis w c-pinpoint c-parenthetical)]
+                    [("proceedings") (render-proceedings w c-pinpoint c-parenthetical)]
+                    [("unpublished") (render-unpublished w c-pinpoint c-parenthetical)]
+                    [("legal-case") (render-legal-case w c-pinpoint c-parenthetical c-judge)]
+                    [("legal-case-US") (render-legal-case-US w c-pinpoint c-parenthetical c-judge)]
+                    [("bill") (render-bill w c-pinpoint c-parenthetical)]
+                    [("statute") (render-statute w c-pinpoint c-parenthetical)]
+                    [("debate") (render-debate w c-pinpoint c-speaker)]
+                    [("magazine/news") (render-magazine/news w c-pinpoint c-parenthetical)]
                     [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))))
 
 (define (format-authors w)
