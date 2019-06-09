@@ -26,6 +26,9 @@
  ; they're needed.
  show-necessary-short-forms)
 
+;----------------------------------------------------------------------
+; Implementation
+
 (require pollen/core)
 (require racket/contract)
 (require txexpr)
@@ -42,10 +45,23 @@
 ; Accessor
 (define/contract (get-work-by-id id)
   (string? . -> . hash?)
-  (hash-ref work-metadata id))
+  (hash-ref work-metadata (clean-param id)))
+
+(define (declared-id? id)
+  (hash-has-key? work-metadata (clean-param id)))
 
 ; Citation system. Following the McGill Guide, with Chicago Manual of Style for any ambiguities.
 ; ----------------------------------------------------------------------------------------------
+
+(define/contract (valid-work-type? type)
+  (string? . -> . boolean?)
+  (if (member type '("article" "thesis" "proceedings" "unpublished" "legal-case" "legal-case-US"
+                               "bill" "statute" "debate" "book" "magazine/news"))
+      #t #f))
+
+(module+ test
+  (check-true (valid-work-type? "thesis"))
+  (check-false (valid-work-type? "invalid work")))
 
 (define/contract (strip-at str)
   (string? . -> . string?)
@@ -130,7 +146,7 @@
 
 (module+ test
   (check-false (clean-param #f))
-  (check-exn exn:fail? (lambda () (clean-param #t)))
+  (check-exn exn:fail? (λ () (clean-param #t)))
   (check-equal? (clean-param "multi-line\nargument") "multi-line argument"))
 
 (define/contract (get-given-from-author author)
@@ -150,10 +166,10 @@
 (module+ test
   (check-equal? (get-given-from-author "Sancho McCann") "Sancho")
   (check-equal? (get-family-from-author "Sancho McCann") "McCann")
-  (check-exn exn:fail? (lambda () (get-given-from-author "Sancho J McCann")))
-  (check-exn exn:fail? (lambda () (get-family-from-author "Sancho J McCann")))
-  (check-exn exn:fail? (lambda () (get-given-from-author "Sancho")))
-  (check-exn exn:fail? (lambda () (get-family-from-author "Sancho"))))
+  (check-exn exn:fail? (λ () (get-given-from-author "Sancho J McCann")))
+  (check-exn exn:fail? (λ () (get-family-from-author "Sancho J McCann")))
+  (check-exn exn:fail? (λ () (get-given-from-author "Sancho")))
+  (check-exn exn:fail? (λ () (get-family-from-author "Sancho"))))
 
 (define/contract (extract-first-page pages)
   (string? . -> . string?)
@@ -164,10 +180,16 @@
   (check-equal? (extract-first-page "10") "10")
   (check-equal? (extract-first-page "11--101") "11")
   (check-equal? (extract-first-page "11---101") "11")
-  (check-equal? (extract-first-page "11-101") "11"))
+  (check-equal? (extract-first-page "11-101") "11")
+  (check-exn exn:fail? (λ () (extract-first-page "not a page or range"))))
 
-; TODO: Can this be a contract?
-(define (validate-work-or-die w)
+; ------------------------------------------------------------------------------
+; These validators check that a declared work has
+; the mandatory elements and has none that are incompatible
+; with each other.
+
+(define/contract (validate-work-or-die w)
+  (hash? . -> . void?)
   (validate-short-form w)
   (case (hash-ref w 'type)
     [("article") (validate-article w)]
@@ -183,110 +205,85 @@
     [("magazine/news") (validate-magazine/news w)]
     [else (raise-user-error "Unrecognized type for work: " (hash-ref w 'type))]))
 
-(define (short-form-used? s)
-  (ormap (lambda (v) (equal? (hash-ref v 'short-form) s)) (hash-values work-metadata)))
+(module+ test
+  (check-not-exn (λ () (validate-work-or-die (hash 'type "article"
+                                             'author-given "Sancho"
+                                             'author-family "McCann"
+                                             'title "My article"
+                                             'journal "A journal"
+                                             'volume "2"
+                                             'short-form "McCann"))))
+  (check-exn exn:fail? (λ () (validate-work-or-die (hash 'type "garbage"
+                                                         'author-given "Sancho"
+                                                         'author-family "McCann"
+                                                         'title "My article"
+                                                         'journal "A journal"
+                                                         'volume "2"
+                                                         'short-form "McCann")))))
+
 
 (define (validate-short-form w)
+  (define (short-form-used? s)
+    (ormap (λ (v) (equal? (hash-ref v 'short-form) s)) (hash-values work-metadata)))
   (when (short-form-used? (hash-ref w 'short-form))
     (raise-user-error "Attempt to use duplicate short-form: " `(,(hash-ref w 'short-form) ,w))))
 
-(define (validate-article w)
-  (define mandatory-elements '(title author-family author-given journal volume))
+(define/contract (validate-mandatory-elements type w mandatory-elements)
+  (valid-work-type? hash? (listof symbol?) . -> . void?)
   (for-each
-   (lambda (e)
+   (λ (e)
      (when (not (hash-ref w e))
-       (raise-user-error "article is missing required field: " e)))
-   mandatory-elements))
+       (raise-user-error (format "~a is missing required field: ~a" type e)))) mandatory-elements))
+
+(module+ test
+  (check-not-exn (λ () (validate-mandatory-elements "article" (hash 'key1 "value1" 'key2 "value2") '(key1 key2))))
+  (check-exn exn:fail? (λ () (validate-mandatory-elements "article" (hash 'key1 "value1" 'key2 #f) '(key1 key2))))
+  (check-exn exn:fail? (λ () (validate-mandatory-elements "article" (hash 'key1 "value1" 'key2 "value2") '(key1 key2 key3))))
+  )
+
+(define (validate-article w)
+  (validate-mandatory-elements "article" w '(title author-family author-given journal volume)))
 
 (define (validate-book w)
-  (define mandatory-elements '(title year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "book is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "book" w '(title year)))
 
 (define (validate-thesis w)
-  (define mandatory-elements '(title author-family author-given institution thesis-description year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "thesis is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "thesis" w '(title author-family author-given institution thesis-description year)))
 
 (define (validate-proceedings w)
-  (define mandatory-elements '(title author-family author-given proceedings year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "proceedings is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "proceedings" w '(title author-family author-given proceedings year)))
 
 (define (validate-unpublished w)
-  (define mandatory-elements '(title author-family author-given year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "unpublished is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "unpublished" w '(title author-family author-given year)))
 
 (define (validate-bill w)
-  (define mandatory-elements '(number title legislative-body year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "bill is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "bill" w '(number title legislative-body year)))
 
 (define (validate-statute w)
-  (define mandatory-elements '(title volume year chapter))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "statute is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "statute" w '(title volume year chapter)))
 
 (define (validate-debate w)
-  (define mandatory-elements '(jurisdiction legislative-body year))
+  (validate-mandatory-elements "debate" w '(jurisdiction legislative-body year))
+  ; These next two elements must go together. They must either both be specified
+  ; or both be unspecified.
   (when (and (hash-ref w 'title) (not (hash-ref w 'reading)))
     (raise-user-error "specified the title of a bill under debate without specifying which reading: " w))
   (when (and (hash-ref w 'reading) (not (hash-ref w 'title)))
-    (raise-user-error "specified a reading of a bill without specifying the title of the bill: " w))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "debate is missing required field: " e)))
-   mandatory-elements))
+    (raise-user-error "specified a reading of a bill without specifying the title of the bill: " w)))
 
 (define (validate-magazine/news w)
-  (define mandatory-elements '(title))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "magazine/news is missing required field: " e)))
-   mandatory-elements))
+  (validate-mandatory-elements "magazine/news" w '(title)))
 
 (define (validate-legal-case w)
-  (define mandatory-elements '(title citation))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "legal-case is missing required field: " e)))
-   mandatory-elements)
+  (validate-mandatory-elements "legal-case" w '(title citation))
   (when (and (year-is-necessary? (hash-ref w 'citation)) (not (hash-ref w 'year)))
-    (raise-user-error "Failed to declare year when year is not the first element of the first citation: " (hash-ref w 'citation)))
-  )
+    (raise-user-error "Failed to declare year when year is not the first element of the first citation: " (hash-ref w 'citation))))
 
 (define (validate-legal-case-US w)
-  (define mandatory-elements '(title citation year))
-  (for-each
-   (lambda (e)
-     (when (not (hash-ref w e))
-       (raise-user-error "legal-case-US is missing required field: " e)))
-   mandatory-elements)
-  )
+  (validate-mandatory-elements "legal-case-US" w '(title citation year)))
 
-(define (make-short-form type author title)
+(define/contract (make-short-form type author title)
+  (valid-work-type? (or/c string? #f) string? . -> . txexpr?)
   (case type
     [("legal-case" "legal-case-US" "statute" "bill") `(em ,title)]
     [("magazine/news") `(span ,(when/splice author author ", “") ,title ,(when/splice author "”"))]
@@ -444,81 +441,126 @@
                 #:short-form short-form)
   (cite id))
 
-(define (style-title markedup-title)
+(define/contract (style-title markedup-title)
+  (string? . -> . txexpr?)
   (define italic-range (regexp-match-positions #rx"\\*.*\\*" markedup-title))
   (if italic-range
       (let* ([before (substring markedup-title 0 (car (car italic-range)))]
              [special-content (substring markedup-title (+ (car (car italic-range)) 1) (- (cdr (car italic-range)) 1))]
              [after (substring markedup-title (cdr (car italic-range)))])
-        `(@ ,before (em ,special-content) ,after))
+        `(@ ,(when/splice (non-empty-string? before) before)
+            (em ,special-content)
+            ,(when/splice (non-empty-string? after) after)))
       `(@ ,markedup-title)))
 
-; Renders a full note-form of the work.
-(define (cite id #:supra [supra #f] #:ibid [ibid #f] #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+(module+ test
+  (check-equal? (style-title "title") (txexpr '@ empty '("title")))
+  (check-equal? (style-title "title *with italics*") (txexpr '@ empty '((@ "title ") (em "with italics") (@))))
+  (check-equal? (style-title "*italics* at start of title") (txexpr '@ empty '((@) (em "italics") (@ " at start of title"))))
+  (check-equal? (style-title "*entire title italics*") (txexpr '@ empty '((@) (em "entire title italics") (@))))
+  ; TODO (check-equal? (style-title "multiple *italics* sections *in* title") (txexpr '@ empty '("multiple " (em "italics") " sections " (em "in") " title")))
+  )
+
+(define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+  (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
+                                   #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
   (define c-speaker (clean-param speaker))
   (define c-signal (clean-param signal))
   (define w (hash-ref work-metadata (clean-param id)))
-  (if ibid
-      `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
-             ,(when/splice c-signal c-signal " ")
-             ,(if c-signal `(em "ibid") `(em "Ibid"))
-             ,(when/splice c-parenthetical " (" c-parenthetical)
-             ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
-             ,(when/splice c-judge ", " c-judge)
-             ,(when/splice c-parenthetical ")")
-             ,(when/splice c-speaker " (" c-speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
-             ".")
-      (if supra
-          `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
-                 ,(when/splice c-signal c-signal " ")
-                 ,(hash-ref w 'short-form) ", "
-                 (em "supra") ,(format " note ~a" supra)
-                 ,(when/splice c-parenthetical " (" c-parenthetical)
-                 ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
-                 ,(when/splice c-judge ", " c-judge)
-                 ,(when/splice c-parenthetical ")")
-                 ,(when/splice c-speaker " (" c-speaker ")")
-                 ".")
-          `(span [[class "bibliography-entry full-form-citation"]
-                  [data-citation-id ,(clean-param id)]
-                  [data-citation-pinpoint ,(if c-pinpoint c-pinpoint "false")]
-                  [data-citation-parenthetical ,(if c-parenthetical c-parenthetical "false")]
-                  [data-citation-judge ,(if c-judge c-judge "false")]
-                  [data-citation-speaker ,(if c-speaker c-speaker "false")]
-                  [data-citation-signal ,(if c-signal c-signal "false")]
-                  ]
-                 ,(when/splice c-signal (format "~a " c-signal))
-                 ,(case (hash-ref w 'type)
-                    [("article") (render-article w c-pinpoint c-parenthetical)]
-                    [("book") (render-book w c-pinpoint c-parenthetical)]
-                    [("thesis") (render-thesis w c-pinpoint c-parenthetical)]
-                    [("proceedings") (render-proceedings w c-pinpoint c-parenthetical)]
-                    [("unpublished") (render-unpublished w c-pinpoint c-parenthetical)]
-                    [("legal-case") (render-legal-case w c-pinpoint c-parenthetical c-judge)]
-                    [("legal-case-US") (render-legal-case-US w c-pinpoint c-parenthetical c-judge)]
-                    [("bill") (render-bill w c-pinpoint c-parenthetical)]
-                    [("statute") (render-statute w c-pinpoint c-parenthetical)]
-                    [("debate") (render-debate w c-pinpoint c-speaker)]
-                    [("magazine/news") (render-magazine/news w c-pinpoint c-parenthetical)]
-                    [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))))
+  `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
+         ,(when/splice c-signal c-signal " ")
+         ,(if c-signal `(em "ibid") `(em "Ibid"))
+         ,(when/splice c-parenthetical " (" c-parenthetical)
+         ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
+         ,(when/splice c-judge ", " c-judge)
+         ,(when/splice c-parenthetical ")")
+         ,(when/splice c-speaker " (" c-speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
+         "."))
 
-(define (format-authors w)
-  `(@ ,(hash-ref w 'author-given)
-      " "
-      ,(hash-ref w 'author-family)
-      ,(when/splice (and (hash-ref w 'author2-family) (not (hash-ref w 'author3-family))) " & ")
-      ,(when/splice (and (hash-ref w 'author2-family) (hash-ref w 'author3-family)) ", ")
-      ,(when/splice (hash-ref w 'author2-given) (hash-ref w 'author2-given))
-      ,(when/splice (hash-ref w 'author2-family) (format " ~a" (hash-ref w 'author2-family)))
-      ,(when/splice (hash-ref w 'author3-family) " & ")
-      ,(when/splice (hash-ref w 'author3-given) (hash-ref w 'author3-given))
-      ,(when/splice (hash-ref w 'author3-family) (format " ~a" (hash-ref w 'author3-family)))
-      ))
+(define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+  (((and/c string? declared-id?) exact-nonnegative-integer?) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
+                                                              #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
+  (define c-pinpoint (clean-param pinpoint))
+  (define c-parenthetical (clean-param parenthetical))
+  (define c-judge (clean-param judge))
+  (define c-speaker (clean-param speaker))
+  (define c-signal (clean-param signal))
+  (define w (hash-ref work-metadata (clean-param id)))
+  `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
+         ,(when/splice c-signal c-signal " ")
+         ,(hash-ref w 'short-form) ", "
+         (em "supra") ,(format " note ~a" back-ref)
+         ,(when/splice c-parenthetical " (" c-parenthetical)
+         ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
+         ,(when/splice c-judge ", " c-judge)
+         ,(when/splice c-parenthetical ")")
+         ,(when/splice c-speaker " (" c-speaker ")")
+         "."))
 
-(define (render-article w pinpoint parenthetical)
+; Renders a full note-form of the work, which will possibly be replaced
+; later by an ibid or supra if necessary.
+(define/contract (cite id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+  (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
+                                   #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
+  (define c-pinpoint (clean-param pinpoint))
+  (define c-parenthetical (clean-param parenthetical))
+  (define c-judge (clean-param judge))
+  (define c-speaker (clean-param speaker))
+  (define c-signal (clean-param signal))
+  (define w (hash-ref work-metadata (clean-param id)))
+  `(span [[class "bibliography-entry full-form-citation"]
+          [data-citation-id ,(clean-param id)]
+          [data-citation-pinpoint ,(if c-pinpoint c-pinpoint "false")]
+          [data-citation-parenthetical ,(if c-parenthetical c-parenthetical "false")]
+          [data-citation-judge ,(if c-judge c-judge "false")]
+          [data-citation-speaker ,(if c-speaker c-speaker "false")]
+          [data-citation-signal ,(if c-signal c-signal "false")]
+          ]
+         ,(when/splice c-signal (format "~a " c-signal))
+         ,(case (hash-ref w 'type)
+            [("article") (render-article w c-pinpoint c-parenthetical)]
+            [("book") (render-book w c-pinpoint c-parenthetical)]
+            [("thesis") (render-thesis w c-pinpoint c-parenthetical)]
+            [("proceedings") (render-proceedings w c-pinpoint c-parenthetical)]
+            [("unpublished") (render-unpublished w c-pinpoint c-parenthetical)]
+            [("legal-case") (render-legal-case w c-pinpoint c-parenthetical c-judge)]
+            [("legal-case-US") (render-legal-case-US w c-pinpoint c-parenthetical c-judge)]
+            [("bill") (render-bill w c-pinpoint c-parenthetical)]
+            [("statute") (render-statute w c-pinpoint c-parenthetical)]
+            [("debate") (render-debate w c-pinpoint c-speaker)]
+            [("magazine/news") (render-magazine/news w c-pinpoint c-parenthetical)]
+            [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))
+
+(define/contract (format-authors w)
+  (hash? . -> . txexpr?)
+  `(@ ,(string-append (hash-ref w 'author-given)
+                     " "
+                     (hash-ref w 'author-family)
+                     (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
+                     (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
+                     (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
+                     (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
+                     (if (hash-ref w 'author3-family #f) " & " "")
+                     (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
+                     (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) ""))))
+
+(module+ test
+  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) '(@ "Sancho McCann"))
+  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann"
+                                      'author2-given "David G" 'author2-family "Lowe")) '(@ "Sancho McCann & David G Lowe"))
+  (check-equal? (format-authors (hash 'author-given "Natasha" 'author-family "Novac"
+                                      'author2-given "Bailey" 'author2-family "Fox"
+                                      'author3-given "Nora" 'author3-family "Parker")) '(@ "Natasha Novac, Bailey Fox & Nora Parker")))
+
+
+; -----------------------------------------------------------------------------------
+; These are all the functions that do the citation layout.
+
+(define/contract (render-article w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr?)
   (define styled-title (style-title (hash-ref w 'title)))
   `(@
     ,(format-authors w)
@@ -539,6 +581,12 @@
     ,(when/splice pinpoint (normalize-pinpoint pinpoint))
     ,(when/splice parenthetical ")")
     "."))
+
+; TODO
+; (module+ test
+;   (test-begin
+;    (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1")
+;    (check-equal? (get-elements (cite "id1")) '(@ "Sancho McCann"))))
 
 (define (render-book w pinpoint parenthetical)
   (define styled-title (style-title (hash-ref w 'title)))
@@ -709,7 +757,6 @@
     ,(when/splice parenthetical ")")
     "."))
 
-; This is a function that your Pollen code should call within its note tag.
 ; Sweeps through the content, replacing any data-short-form-pre-placeholder with data-short-form-placeholder.
 ; You should do this only in the note context because if a work is just "cited" (i.e. rendered inline) not in a footnote or sidenote,
 ; then it isn't part of the reference-counting/back-reference (ibid/supra) system.
@@ -737,14 +784,20 @@
         (when (not (hash-has-key? first-place-cited id)) (hash-set! first-place-cited id footnote-number))
         (set! most-recent-ibid-or-supra (cons id footnote-number))
         ; If this work was previous cited, take its full-form citation and replace it with an ibid or supra.
-        (if first-cite
-            (cite id #:supra first-cite #:ibid ibid #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
-                  #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
-                  #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
-                  #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
-                  #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal))
-            tx)
-        )
+        (if ibid (cite-ibid id
+                            #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
+                            #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
+                            #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
+                            #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
+                            #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal))
+            ; If ibid was not appropriate, but there is a first-cite, then supra must be required.
+            (if first-cite (cite-supra id first-cite
+                                       #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
+                                       #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
+                                       #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
+                                       #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
+                                       #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal))
+                tx)))
       tx))
 
 ; This does the transformations that are needed for any cites found within a note context.
