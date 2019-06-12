@@ -572,7 +572,7 @@
     ,(hash-ref w 'volume)
     ,(when/splice (hash-ref w 'issue) ":" (hash-ref w 'issue))
     " "
-    (em ,(hash-ref w 'journal))
+    ,(hash-ref w 'journal)
     " "
     ,(when/splice (hash-ref w 'forthcoming) " [forthcoming in " (hash-ref w 'forthcoming) "]")
     ,(when/splice (hash-ref w 'first-page) " " (hash-ref w 'first-page))
