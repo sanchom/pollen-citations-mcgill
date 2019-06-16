@@ -50,6 +50,31 @@
 (define (declared-id? id)
   (hash-has-key? work-metadata (clean-param id)))
 
+; Helpers
+(define-syntax-rule (when-or-empty condition lst)
+  (if condition lst '()))
+
+(define/contract (merge-successive-strings elements)
+  (txexpr-elements? . -> . txexpr-elements?)
+  (define (conditional-merge element current-list)
+    (if (and (not (empty? current-list))
+             (string? (first current-list))
+             (string? element))
+        (cons (string-append (first current-list) element) (drop current-list 1))
+        (cons element current-list)))
+  (reverse (foldl conditional-merge '() elements)))
+
+(module+ test
+  (check-equal? (merge-successive-strings '()) '())
+  (check-equal? (merge-successive-strings '("a")) '("a"))
+  (check-equal? (merge-successive-strings '(a)) '(a))
+  (check-equal? (merge-successive-strings '(a "b")) '(a "b"))
+  (check-equal? (merge-successive-strings '("a" "b")) '("ab"))
+  (check-equal? (merge-successive-strings '("a" a "b")) '("a" a "b"))
+  (check-equal? (merge-successive-strings '("a" "b" " " "c")) '("ab c"))
+  (check-equal? (merge-successive-strings '("a" "b" a " " b "c" c d "e" " f" g)) '("ab" a " " b "c" c d "e f" g))
+  )
+
 ; Citation system. Following the McGill Guide, with Chicago Manual of Style for any ambiguities.
 ; ----------------------------------------------------------------------------------------------
 
@@ -276,6 +301,8 @@
 
 (define (validate-legal-case w)
   (validate-mandatory-elements "legal-case" w '(title citation))
+  (when (and (hash-ref w 'cited-to) (not (string-contains? (hash-ref w 'citation) (hash-ref w 'cited-to))))
+    (raise-user-error "the cited-to helper information, if provided, must refer to the primary citation: " (hash-ref w 'citation)))
   (when (and (year-is-necessary? (hash-ref w 'citation)) (not (hash-ref w 'year)))
     (raise-user-error "Failed to declare year when year is not the first element of the first citation: " (hash-ref w 'citation))))
 
@@ -283,11 +310,11 @@
   (validate-mandatory-elements "legal-case-US" w '(title citation year)))
 
 (define/contract (make-short-form type author title)
-  (valid-work-type? (or/c string? #f) string? . -> . txexpr?)
+  (valid-work-type? (or/c string? #f) string? . -> . txexpr-elements?)
   (case type
-    [("legal-case" "legal-case-US" "statute" "bill") `(em ,title)]
-    [("magazine/news") `(span ,(when/splice author author ", “") ,title ,(when/splice author "”"))]
-    [else `(span ,(when/splice author author ", “") ,title ,(when/splice author "”"))]))
+    [("legal-case" "legal-case-US" "statute" "bill") `(,title)]
+    [("magazine/news") (merge-successive-strings `(,@(when-or-empty author `(,author ", “")) ,title ,@(when-or-empty author '("”"))))]
+    [else (merge-successive-strings `(,@(when-or-empty author `(,author ", “")) ,title ,@(when-or-empty author '("”"))))]))
 
 (define (declare-work #:type type
                       #:id id
@@ -306,12 +333,16 @@
                       #:publication [publication #f] ; for magazine/news
                       #:issue [issue #f]
                       #:citation [citation #f]
+                      #:parallel-citation [parallel-citation #f]
                       #:jurisdiction [jurisdiction #f]
+                      #:case-judge [case-judge #f]
                       #:institution [institution #f]
                       #:legislative-body [legislative-body #f]
-                      #:number [number #f]
+                      #:number [number #f] ; for bills
                       #:chapter [chapter #f] ; for statutes
                       #:reading [reading #f] ; for legislative debates
+                      #:bill-status [bill-status #f] ; a parenthetical at the end of bill's citation
+                      #:eventual-statute [eventual-statute #f] ; additional detail for a bill that has passed
                       #:proceedings [proceedings #f]
                       #:publisher [publisher #f]
                       #:publisher-location [publisher-location #f]
@@ -322,7 +353,8 @@
                       #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                       #:first-page [first-page #f]
                       #:url [url #f]
-                      #:short-form [short-form #f])
+                      #:short-form [short-form #f]
+                      #:cited-to [cited-to #f])
   (define cleaned-id (clean-param id))
   (when (and author (or author-given author-family))
     (raise-user-error "You used #:author and either #:author-given or #:author-family. #:author is a substitute for the latter when the name is simple." `(,author ,author-given ,author-family)))
@@ -346,11 +378,15 @@
                   'volume volume
                   'issue issue
                   'citation (clean-param citation)
+                  'parallel-citation (clean-param parallel-citation)
                   'jurisdiction (clean-param jurisdiction)
+                  'case-judge (clean-param case-judge)
                   'institution (clean-param institution)
                   'legislative-body (clean-param legislative-body)
                   'number (clean-param number)
                   'chapter (clean-param chapter)
+                  'bill-status (clean-param bill-status)
+                  'eventual-statute (clean-param eventual-statute)
                   'reading (clean-param reading)
                   'proceedings (clean-param proceedings)
                   'publisher (clean-param publisher)
@@ -362,8 +398,9 @@
                   'first-page (if pages (extract-first-page pages) first-page)
                   'url url
                   'short-form (if short-form
-                                  `(span ,(style-title (clean-param short-form)))
-                                  (make-short-form type (if author (get-family-from-author author) (clean-param author-family)) title))))
+                                  (style-title (clean-param short-form))
+                                  (make-short-form type (if author (get-family-from-author author) (clean-param author-family)) title))
+                  'cited-to cited-to))
   (validate-work-or-die w)
   (hash-set! work-metadata cleaned-id w))
 
@@ -386,12 +423,16 @@
                      #:publication [publication #f] ; for magazine/news
                      #:issue [issue #f]
                      #:citation [citation #f]
+                     #:parallel-citation [parallel-citation #f]
                      #:jurisdiction [jurisdiction #f]
+                     #:case-judge [case-judge #f]
                      #:institution [institution #f]
                      #:legislative-body [legislative-body #f]
-                     #:number [number #f]
+                     #:number [number #f] ; for bills
                      #:chapter [chapter #f] ; for statutes
                      #:reading [reading #f] ; for legislative debates
+                     #:bill-status [bill-status #f] ; a parenthetical at the end of bill's citation
+                     #:eventual-statute [eventual-statute #f] ; additional detail for a bill that has passed
                      #:proceedings [proceedings #f]
                      #:publisher [publisher #f]
                      #:publisher-location [publisher-location #f]
@@ -422,12 +463,16 @@
                 #:publication publication
                 #:issue issue
                 #:citation citation
+                #:parallel-citation parallel-citation
                 #:jurisdiction jurisdiction
+                #:case-judge case-judge
                 #:institution institution
                 #:legislative-body legislative-body
                 #:number number
                 #:chapter chapter
                 #:reading reading
+                #:bill-status bill-status
+                #:eventual-statute eventual-statute
                 #:proceedings proceedings
                 #:publisher publisher
                 #:publisher-location publisher-location
@@ -442,22 +487,22 @@
   (cite id))
 
 (define/contract (style-title markedup-title)
-  (string? . -> . txexpr?)
+  (string? . -> . txexpr-elements?)
   (define italic-range (regexp-match-positions #rx"\\*.*\\*" markedup-title))
   (if italic-range
       (let* ([before (substring markedup-title 0 (car (car italic-range)))]
              [special-content (substring markedup-title (+ (car (car italic-range)) 1) (- (cdr (car italic-range)) 1))]
              [after (substring markedup-title (cdr (car italic-range)))])
-        `(@ ,(when/splice (non-empty-string? before) before)
-            (em ,special-content)
-            ,(when/splice (non-empty-string? after) after)))
-      `(@ ,markedup-title)))
+        `(,@(when-or-empty (non-empty-string? before) `(,before))
+          (em ,special-content)
+          ,@(when-or-empty (non-empty-string? after) `(,after))))
+      `(,markedup-title)))
 
 (module+ test
-  (check-equal? (style-title "title") (txexpr '@ empty '("title")))
-  (check-equal? (style-title "title *with italics*") (txexpr '@ empty '((@ "title ") (em "with italics") (@))))
-  (check-equal? (style-title "*italics* at start of title") (txexpr '@ empty '((@) (em "italics") (@ " at start of title"))))
-  (check-equal? (style-title "*entire title italics*") (txexpr '@ empty '((@) (em "entire title italics") (@))))
+  (check-equal? (style-title "title") '("title"))
+  (check-equal? (style-title "title *with italics*") '("title " (em "with italics")))
+  (check-equal? (style-title "*italics* at start of title") '((em "italics") " at start of title"))
+  (check-equal? (style-title "*entire title italics*") '((em "entire title italics")))
   ; TODO (check-equal? (style-title "multiple *italics* sections *in* title") (txexpr '@ empty '("multiple " (em "italics") " sections " (em "in") " title")))
   )
 
@@ -490,15 +535,29 @@
   (define c-signal (clean-param signal))
   (define w (hash-ref work-metadata (clean-param id)))
   `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
-         ,(when/splice c-signal c-signal " ")
-         ,(hash-ref w 'short-form) ", "
-         (em "supra") ,(format " note ~a" back-ref)
-         ,(when/splice c-parenthetical " (" c-parenthetical)
-         ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
-         ,(when/splice c-judge ", " c-judge)
-         ,(when/splice c-parenthetical ")")
-         ,(when/splice c-speaker " (" c-speaker ")")
-         "."))
+         ,@(merge-successive-strings `(
+                                       ,@(when-or-empty c-signal `(,c-signal " "))
+                                       ,@(if (list? (hash-ref w 'short-form)) (hash-ref w 'short-form) `(,(hash-ref w 'short-form))) ", "
+                                       (em "supra") ,(format " note ~a" back-ref)
+                                       ,@(when-or-empty c-parenthetical `(" (" ,c-parenthetical))
+                                       ,@(when-or-empty c-pinpoint `(,(normalize-pinpoint c-pinpoint)))
+                                       ,@(when-or-empty c-judge `(", " ,c-judge))
+                                       ,@(when-or-empty c-parenthetical '(")"))
+                                       ,@(when-or-empty c-speaker `(" (" ,c-speaker ")"))
+                                       "."))))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "secession" #:type "legal-case"
+                 #:title "Reference re Secession of Quebec" #:citation "[1998] 2 SCR 217"
+                 #:short-form "*Secession Reference*")
+   (check-equal? (get-elements (cite-supra "secession" 2 #:pinpoint "219"))
+                 `((em "Secession Reference") ", " (em "supra") " note 2 at 219."))
+   (declare-work #:id "BC PPPA" #:type "bill" #:number "2"
+                 #:title "Protection of Public Participation Act" #:legislative-body "4th Sess, 41st Leg, British Columbia"
+                 #:year "2019" #:short-form "BC *PPPA*")
+   (check-equal? (get-elements (cite-supra "BC PPPA" 1))
+                 `("BC " (em "PPPA") ", " (em "supra") " note 1."))))
 
 ; Renders a full note-form of the work, which will possibly be replaced
 ; later by an ibid or supra if necessary.
@@ -520,7 +579,7 @@
           [data-citation-signal ,(if c-signal c-signal "false")]
           ]
          ,(when/splice c-signal (format "~a " c-signal))
-         ,(case (hash-ref w 'type)
+         ,@(case (hash-ref w 'type)
             [("article") (render-article w c-pinpoint c-parenthetical)]
             [("book") (render-book w c-pinpoint c-parenthetical)]
             [("thesis") (render-thesis w c-pinpoint c-parenthetical)]
@@ -535,227 +594,433 @@
             [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))
 
 (define/contract (format-authors w)
-  (hash? . -> . txexpr?)
-  `(@ ,(string-append (hash-ref w 'author-given)
-                     " "
-                     (hash-ref w 'author-family)
-                     (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
-                     (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
-                     (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
-                     (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
-                     (if (hash-ref w 'author3-family #f) " & " "")
-                     (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
-                     (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) ""))))
+  (hash? . -> . string?)
+  (string-append (hash-ref w 'author-given)
+                 " "
+                 (hash-ref w 'author-family)
+                 (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
+                 (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
+                 (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
+                 (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
+                 (if (hash-ref w 'author3-family #f) " & " "")
+                 (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
+                 (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")))
 
 (module+ test
-  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) '(@ "Sancho McCann"))
+  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) "Sancho McCann")
   (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann"
-                                      'author2-given "David G" 'author2-family "Lowe")) '(@ "Sancho McCann & David G Lowe"))
+                                      'author2-given "David G" 'author2-family "Lowe")) "Sancho McCann & David G Lowe")
   (check-equal? (format-authors (hash 'author-given "Natasha" 'author-family "Novac"
                                       'author2-given "Bailey" 'author2-family "Fox"
-                                      'author3-given "Nora" 'author3-family "Parker")) '(@ "Natasha Novac, Bailey Fox & Nora Parker")))
+                                      'author3-given "Nora" 'author3-family "Parker")) "Natasha Novac, Bailey Fox & Nora Parker"))
 
 
 ; -----------------------------------------------------------------------------------
 ; These are all the functions that do the citation layout.
 
 (define/contract (render-article w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr?)
-  (define styled-title (style-title (hash-ref w 'title)))
-  `(@
-    ,(format-authors w)
-    ", “"
-    ,(if (hash-ref w 'url) `(a [[href ,(hash-ref w 'url)]] ,styled-title) styled-title)
-    "”"
-    ,(when/splice (hash-ref w 'comment-info) ", " (hash-ref w 'comment-info) ", ")
-    ,(when/splice (hash-ref w 'year) " (" (hash-ref w 'year) ") ")
-    ,(hash-ref w 'volume)
-    ,(when/splice (hash-ref w 'issue) ":" (hash-ref w 'issue))
-    " "
-    ,(hash-ref w 'journal)
-    " "
-    ,(when/splice (hash-ref w 'forthcoming) " [forthcoming in " (hash-ref w 'forthcoming) "]")
-    ,(when/splice (hash-ref w 'first-page) " " (hash-ref w 'first-page))
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."))
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+  (define title-elements (style-title (hash-ref w 'title)))
+  (define fragmented
+    `(,(format-authors w)
+      ", “"
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
+      "”"
+      ,@(when-or-empty (hash-ref w 'comment-info) `(", " ,(hash-ref w 'comment-info) ", "))
+      ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ") "))
+      ,(hash-ref w 'volume)
+      ,@(when-or-empty (hash-ref w 'issue) `(":" ,(hash-ref w 'issue)))
+      " "
+      ,(hash-ref w 'journal)
+      ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
+      ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
 
-; TODO
-; (module+ test
-;   (test-begin
-;    (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1")
-;    (check-equal? (get-elements (cite "id1")) '(@ "Sancho McCann"))))
+(module+ test
+  (test-begin
+   (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018")
+   (check-equal? (get-elements (cite "id1")) '((@) "Sancho McCann, “Title” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "id1"]]) "."))
+   (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018")
+   (check-equal? (get-elements (cite "id2")) '((@) "Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
 
 (define (render-book w pinpoint parenthetical)
   (define styled-title (style-title (hash-ref w 'title)))
-  `(@
-    ,(when/splice (hash-ref w 'author-family) (format-authors w) ", ")
-    ,(if (hash-ref w 'url) `(a [[href ,(hash-ref w 'url)]] (em ,styled-title)) `(em ,styled-title))
-    " "
-    " ("
-    ,(when/splice (hash-ref w 'publisher-location) (hash-ref w 'publisher-location))
-    ,(when/splice (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) ": ")
-    ,(when/splice (hash-ref w 'publisher) (hash-ref w 'publisher))
-    ,(when/splice (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) ", ")
-    ,(hash-ref w 'year)
-    ")"
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."))
+  ; TODO: Title style for books needs to flip if there is emphasis in the title.
+  (define fragmented
+    `(
+      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w) ", "))
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@styled-title))) `((em ,@styled-title)))
+      " ("
+      ,@(when-or-empty (hash-ref w 'publisher-location) `(,(hash-ref w 'publisher-location)))
+      ,@(when-or-empty (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(": "))
+      ,@(when-or-empty (hash-ref w 'publisher) `(,(hash-ref w 'publisher)))
+      ,@(when-or-empty (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(", "))
+      ,(hash-ref w 'year)
+      ")"
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
 
-(define (render-thesis w pinpoint parenthetical)
-  (define styled-title (style-title (hash-ref w 'title)))
-  `(@
-    ,(format-authors w)
-    ", "
-    ,(if (hash-ref w 'url) `(a [[href ,(hash-ref w 'url)]] (em ,styled-title)) `(em ,styled-title))
-    " ("
-    ,(hash-ref w 'thesis-description) ", "
-    ,(hash-ref w 'institution) ", "
-    ,(hash-ref w 'year)
-    ")"
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."
-    ))
+(module+ test
+  (test-begin
+   (declare-work #:id "id3" #:type "book" #:author-given "Monique Mattei" #:author-family "Ferraro"
+                 #:author2-given "Eoghan" #:author2-family "Casey"
+                 #:title "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science"
+                 #:publisher-location "Boston" #:publisher "Elsevier/Academic Press" #:year "2005")
+   (check-equal? (get-elements (cite "id3"))
+                 '((@) "Monique Mattei Ferraro & Eoghan Casey, "
+                       (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
+                       " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
+
+(define/contract (render-thesis w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+  (define title-elements (style-title (hash-ref w 'title)))
+  (define fragmented
+    `(
+      ,(format-authors w)
+      ", "
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
+      " ("
+      ,(hash-ref w 'thesis-description) ", "
+      ,(hash-ref w 'institution) ", "
+      ,(hash-ref w 'year)
+      ") [unpublished]"
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical '(")"))
+      "."
+      ))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "id-thesis" #:type "thesis" #:author "Julie Desrosiers"
+                 #:title "L'isolement, le retrait et l'arrêt d'agir dans les centre de réadaptation pour jeunes"
+                 #:thesis-description "DCL Thesis" #:institution "McGill University Institute of Comparative Law" #:year "2005")
+   (check-equal? (get-elements (cite "id-thesis"))
+                 '((@) "Julie Desrosiers, "
+                       (em "L'isolement, le retrait et l'arrêt d'agir dans les centre de réadaptation pour jeunes")
+                       " (DCL Thesis, McGill University Institute of Comparative Law, 2005) [unpublished]"
+                       (span [[data-short-form-pre-placeholder "id-thesis"]]) "."))))
 
 (define (render-proceedings w pinpoint parenthetical)
-  (define styled-title (style-title (hash-ref w 'title)))
-  `(@
-    ,(format-authors w)
-    ", “"
-    ,(if (hash-ref w 'url) `(a [[href ,(hash-ref w 'url)]] ,styled-title) styled-title)
-    "” in "
-    (em ,(hash-ref w 'proceedings))
-    " ("
-    ,(when/splice (hash-ref w 'publisher-location) (hash-ref w 'publisher-location))
-    ,(when/splice (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) ": ")
-    ,(when/splice (hash-ref w 'publisher) (hash-ref w 'publisher))
-    ,(when/splice (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) ", ")
-    ,(hash-ref w 'year)
-    ")"
-    ,(when/splice (hash-ref w 'first-page) " " (hash-ref w 'first-page))
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."))
+  (define title-elements (style-title (hash-ref w 'title)))
+  (define fragmented
+    `(
+      ,(format-authors w)
+      ", “"
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
+      "” in "
+      (em ,(hash-ref w 'proceedings))
+      " ("
+      ,@(when-or-empty (hash-ref w 'publisher-location) `(,(hash-ref w 'publisher-location)))
+      ,@(when-or-empty (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(": "))
+      ,@(when-or-empty (hash-ref w 'publisher) `(,(hash-ref w 'publisher)))
+      ,@(when-or-empty (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(", "))
+      ,(hash-ref w 'year)
+      ")"
+      ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "id-proceedings" #:type "proceedings" #:author "Sancho McCann"
+                 #:author2-given "David G" #:author2-family "Lowe"
+                 #:title "Spatially-local coding for object recognition"
+                 #:proceedings "11th Asian Conference on Computer Vision" #:year "2012"
+                 #:first-page "204" #:publisher "Springer")
+   (check-equal? (get-elements (cite "id-proceedings"))
+                 '((@) "Sancho McCann & David G Lowe, “Spatially-local coding for object recognition” in "
+                       (em "11th Asian Conference on Computer Vision")
+                       " (Springer, 2012) 204"
+                       (span [[data-short-form-pre-placeholder "id-proceedings"]]) "."))))
 
 (define (render-unpublished w pinpoint parenthetical)
-  (define styled-title (style-title (hash-ref w 'title)))
-  `(@
-    ,(format-authors w)
-    ", “"
-    ,(if (hash-ref w 'url) `(a [[href ,(hash-ref w 'url)]] ,styled-title) styled-title)
-    "” ("
-    ,(when/splice (hash-ref w 'description) (hash-ref w 'description) ", ")
-    ,(hash-ref w 'year)
-    ")"
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."))
+  (define title-elements (style-title (hash-ref w 'title)))
+  (merge-successive-strings
+   `(
+     ,(format-authors w)
+     ", “"
+     ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
+     "” ("
+     ,@(when-or-empty (hash-ref w 'description) `(,(hash-ref w 'description) ", "))
+     ,(hash-ref w 'year)
+     ")"
+     " [unpublished]"
+     (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+     ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+     ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+     ,@(when-or-empty parenthetical '(")"))
+     ".")))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "McCann" #:type "unpublished"
+                 #:author "Sancho McCann" #:title "Atmospheric Sounding Visualization"
+                 #:description "course report, Information Visualization, Department of Computer Science, University of British Columbia"
+                 #:year "2006")
+   (check-equal? (get-elements (cite "McCann"))
+                 `((@) "Sancho McCann, “Atmospheric Sounding Visualization” (course report, Information Visualization, Department of Computer Science, University of British Columbia, 2006) [unpublished]"
+                       (span [[data-short-form-pre-placeholder "McCann"]]) "."))))
+
 
 (define (render-legal-case w pinpoint parenthetical judge)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
-  `(@
-    (em ,(if url `(a [[href ,url]] ,title) `(span ,title)))
-    ,(when/splice (year-is-necessary? (hash-ref w 'citation)) " (" (hash-ref w 'year) ")")
-    ", "
-    ,(hash-ref w 'citation)
-    ,(when/splice (and (not parenthetical) judge) ", " judge)
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice (and parenthetical judge) ", " judge)
-    ,(when/splice parenthetical ")")
-    "."))
+  (define fragmented
+    `(
+      (em ,(if url `(a [[href ,url]] ,title) title))
+      ,@(when-or-empty (year-is-necessary? (hash-ref w 'citation)) `(" (" ,(hash-ref w 'year) ")"))
+      ", "
+      ,(hash-ref w 'citation)
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
+      ; If there is a parallel citation, put the pinpoint first.
+      ,@(when-or-empty (hash-ref w 'parallel-citation) `(", " ,(hash-ref w 'parallel-citation)))
+      ,@(when-or-empty (hash-ref w 'case-judge) `(", " ,(hash-ref w 'case-judge)))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "Fisher" #:type "legal-case"
+                 #:title "Fisher v Fisher" #:citation "2008 ONCA 11" #:short-form "Fisher")
+   (check-equal? (get-elements (cite "Fisher" #:pinpoint "paras 52--59"))
+                 '((@) (em "Fisher v Fisher") ", 2008 ONCA 11 at paras 52--59"
+                       (span [[data-short-form-pre-placeholder "Fisher"]]) "."))
+   (declare-work #:id "Gordon" #:type "legal-case"
+                 #:title "Gordon v Goertz" #:citation "[1996] 2 SCR 27" #:parallel-citation "134 DLR (4th) 321"
+                 #:short-form "Gordon")
+   (check-equal? (get-elements (cite "Gordon" #:pinpoint "para 13"))
+                 '((@) (em "Gordon v Goertz") ", [1996] 2 SCR 27 at para 13, 134 DLR (4th) 321"
+                       (span [[data-short-form-pre-placeholder "Gordon"]]) "."))
+   ; See 3.6.2 for "cited to" rules; these are not context-free. They depend on whether
+   ; the first occurrence had a pinpoint and whether the work is ever pinpointed later.
+   ; However, it is clear from the examples at 1.3.7 that the requirements for cited-to
+   ; are not well specified in the case of a parenthetical with a pinpoint in a citation's
+   ; only use. Here, I adopt the more inclusive alternative: specify cited-to when there is a
+   ; parallel citation with a parenthetical that includes a pinpoint, even if it is the only
+   ; occurrence of the citation in the document. But really, cited-to should not be necessary,
+   ; since McGill says you must always cite to the primary, first-listed citation.
+   ; See 1.3.7 for parenthetical rules and this particular example.
+   ; See 3.10 for judge rules.
+   (check-exn exn:fail?
+              (λ ()
+                (declare-work #:id "Oakwood" #:type "legal-case"
+                              #:title "Oakwood Development Ltd v St François Xavier (Municipality)"
+                              #:citation "[1985] 2 SCR 164" #:parallel-citation "20 DLR (4th) 641" #:cited-to "DLR"
+                              #:short-form "Oakwood"))) ; cited-to must be to the primary citation, if at all
+   (declare-work #:id "Oakwood" #:type "legal-case"
+                 #:title "Oakwood Development Ltd v St François Xavier (Municipality)"
+                 #:citation "[1985] 2 SCR 164" #:parallel-citation "20 DLR (4th) 641"
+                 #:case-judge "Wilson J" #:cited-to "SCR"
+                 #:short-form "Oakwood")
+   (check-equal? (get-elements (cite "Oakwood" #:pinpoint "174"
+                                     #:parenthetical "\"[t]he failure of an administrative decision-maker\""))
+                 '((@) (em "Oakwood Development Ltd v St François Xavier (Municipality)")
+                       ", [1985] 2 SCR 164, 20 DLR (4th) 641, Wilson J"
+                       (span [[data-short-form-pre-placeholder "Oakwood"]])
+                       " (\"[t]he failure of an administrative decision-maker\" at 174)."))))
+; TODO: Add tests that check whether cited-to is properly being added to the short-forms.
 
 (define (render-legal-case-US w pinpoint parenthetical judge)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
-  `(@
-    (em ,(if url `(a [[href ,url]] ,title) `(span ,title)))
-    ", "
-    ,(hash-ref w 'citation)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    " ("
-    ,(when/splice (hash-ref w 'jurisdiction) (hash-ref w 'jurisdiction) " ")
-    ,(hash-ref w 'year)
-    ")"
-    ,(when/splice (and (not parenthetical) judge) ", " judge)
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice (and parenthetical judge) ", " judge)
-    ,(when/splice parenthetical ")")
-    "."))
+  (define fragmented
+    `(
+      (em ,(if url `(a [[href ,url]] ,title) title))
+      ", "
+      ,(hash-ref w 'citation)
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      " ("
+      ,@(when-or-empty (hash-ref w 'jurisdiction) `(,(hash-ref w 'jurisdiction) " "))
+      ,(hash-ref w 'year)
+      ")"
+      ,@(when-or-empty (and (not parenthetical) judge) `(", " ,judge))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "Texas Beef" #:type "legal-case-US"
+                 #:title "Texas Beef Group v Winfrey" #:citation "11 F Supp (2d) 858"
+                 #:url "https://law.justia.com/cases/federal/district-courts/FSupp2/11/858/2289177/"
+                 #:jurisdiction "ND Tex" #:year "1998" #:short-form "Texas Beef")
+   (check-equal? (get-elements (cite "Texas Beef"))
+                 '((@) (em (a [[href "https://law.justia.com/cases/federal/district-courts/FSupp2/11/858/2289177/"]] "Texas Beef Group v Winfrey"))
+                       ", 11 F Supp (2d) 858 (ND Tex 1998)"
+                       (span [[data-short-form-pre-placeholder "Texas Beef"]]) "."))))
 
 (define (render-bill w pinpoint parenthetical)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
-  `(@
-    ,(hash-ref w 'number) ", "
-    (em ,(if url `(a [[href ,url]] ,title) `(span ,title))) ", "
-    ,(hash-ref w 'legislative-body) ", "
-    ,(hash-ref w 'year)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    "."))
+  (define fragmented
+    `(
+      "Bill "
+      ,(hash-ref w 'number)
+      ", "
+      (em ,(if url `(a [[href ,url]] ,title) title)) ", "
+      ,(hash-ref w 'legislative-body) ", "
+      ,(hash-ref w 'year)
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (hash-ref w 'bill-status) `(" (" ,(hash-ref w 'bill-status) ")"))
+      ,@(when-or-empty (hash-ref w 'eventual-statute) `(", " ,(hash-ref w 'eventual-statute)))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "C-26" #:type "bill" #:number "C-26"
+                 #:title "An Act to establish the Canada Border Services Agency"
+                 #:legislative-body "1st Sess, 38th Parl" #:year "2005"
+                 #:bill-status "as passed by the House of Commons 13 June 2005")
+   (check-equal? (get-elements (cite "C-26" #:pinpoint "clause 5(1)(e)"))
+                 `((@) "Bill C-26, " (em "An Act to establish the Canada Border Services Agency")
+                       ", 1st Sess, 38th Parl, 2005, cl 5(1)(e) (as passed by the House of Commons 13 June 2005)"
+                       (span [[data-short-form-pre-placeholder "C-26"]]) "."))
+   (declare-work #:id "Bill 59" #:type "bill" #:number "59"
+                 #:title "An Act to amend the Civil Code as regards marriage"
+                 #:legislative-body "1st Sess, 37th Leg, Quebec" #:year "2004"
+                 #:bill-status "assented to 10 November 2004" #:eventual-statute "SQ 2004, c 23")
+   (check-equal? (get-elements (cite "Bill 59"))
+                 `((@) "Bill 59, " (em "An Act to amend the Civil Code as regards marriage")
+                       ", 1st Sess, 37th Leg, Quebec, 2004 (assented to 10 November 2004), SQ 2004, c 23"
+                       (span [[data-short-form-pre-placeholder "Bill 59"]]) "."))))
 
 (define (render-statute w pinpoint parenthetical)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
-  `(@
-    (em ,(if url `(a [[href ,url]] ,title) `(span ,title))) ", "
-    ,(hash-ref w 'volume) " "
-    ,(hash-ref w 'year) ", "
-    "c " ,(hash-ref w 'chapter)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice parenthetical  ")")
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    "."))
+  (define fragmented
+    `(
+      (em ,(if url `(a [[href ,url]] ,title) title))
+      ", "
+      ,(hash-ref w 'volume) " "
+      ,(hash-ref w 'year) ", "
+      "c " ,(hash-ref w 'chapter)
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical ")"))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "Criminal Code" #:type "statute" #:title "Criminal Code"
+                 #:volume "RSC" #:year "1985" #:chapter "C-46")
+   (check-equal? (get-elements (cite "Criminal Code" #:pinpoint "Section 745"))
+                 `((@) (em "Criminal Code") ", RSC 1985, c C-46, s 745"
+                       (span [[data-short-form-pre-placeholder "Criminal Code"]]) "."))
+   (declare-work #:id "ITA" #:type "statute" #:title "Income Tax Act"
+                 #:volume "RSC" #:year "1985" #:chapter "1 (5th Supp)")
+   (check-equal? (get-elements (cite "ITA" #:pinpoint "Section 18(1)(m)(iv)(c)"))
+                 `((@) (em "Income Tax Act") ", RSC 1985, c 1 (5th Supp), s 18(1)(m)(iv)(c)"
+                       (span [[data-short-form-pre-placeholder "ITA"]]) "."))))
 
 (define (render-debate w pinpoint speaker)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
-  (define doc-string
-    `(@ ,(hash-ref w 'jurisdiction) ", "
-        (em ,(hash-ref w 'proceedings)) ", "
-        ,(hash-ref w 'legislative-body) ", "
-        ,(when/splice (hash-ref w 'volume) (hash-ref w 'volume))))
-  `(@
-    ,(when/splice title "“" title "”, ")
-    ,(when/splice (hash-ref w 'reading) (hash-ref w 'reading) ", ")
-    ,(if url `(a [[href ,url]] ,doc-string) `(span ,doc-string)) " "
-    "(" ,(hash-ref w 'year) ")"
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice speaker " (" speaker ")")
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    "."))
+  (define doc-string-elements
+    `(,@(when-or-empty (and (hash-ref w 'jurisdiction) (not (equal? (hash-ref w 'jurisdiction) "Canada")))
+                       `(,(hash-ref w 'jurisdiction) ", "))
+      (em ,(hash-ref w 'proceedings)) ", "
+      ,(hash-ref w 'legislative-body) ", "
+      ,@(when-or-empty (hash-ref w 'volume) `(,(hash-ref w 'volume)))))
+  (define fragmented
+    `(
+      ,@(when-or-empty title `("“" ,title "”, "))
+      ,@(when-or-empty (hash-ref w 'reading) `(,(hash-ref w 'reading) ", "))
+      ,@(if url `((a [[href ,url]] ,@doc-string-elements)) doc-string-elements)
+      " (" ,(hash-ref w 'year) ")"
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty speaker `(" (" ,speaker ")"))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "debate-1" #:type "debate" #:jurisdiction "Canada"
+                 #:proceedings "House of Commons Debates" #:legislative-body "37-1" #:volume "No 64"
+                 #:date "17 May 2001" #:short-form "Debate: 17 May 2001")
+   (check-equal? (get-elements (cite "debate-1" #:pinpoint "4175" #:speaker "Hon Elinor Caplan"))
+                 `((@) (em "House of Commons Debates") ", 37-1, No 64 (17 May 2001) at 4175 (Hon Elinor Caplan)"
+                       (span [[data-short-form-pre-placeholder "debate-1"]]) "."))
+   (declare-work #:id "debate-2" #:type "debate" #:jurisdiction "Quebec, National Assembly"
+                 #:proceedings "Votes and Proceedings" #:legislative-body "39-1" #:volume "No 48"
+                 #:date "18 June 2009" #:short-form "Debate: 18 June 2009")
+   (check-equal? (get-elements (cite "debate-2" #:pinpoint "517"))
+                 `((@) "Quebec, National Assembly, " (em "Votes and Proceedings")
+                       ", 39-1, No 48 (18 June 2009) at 517"
+                       (span [[data-short-form-pre-placeholder "debate-2"]]) "."))
+   (declare-work #:id "debate-3" #:type "debate" #:jurisdiction "Canada"
+                 #:title "Bill C-8, An Act to amend the Copyright Act" #:reading "2nd reading"
+                 #:proceedings "House of Commons Debates" #:legislative-body "41-2" #:volume "No 9"
+                 #:date "28 October 2013" #:short-form "Copyright Debate")
+   (check-equal? (get-elements (cite "debate-3" #:pinpoint "1504" #:speaker "Hon Steven Blaney"))
+                 `((@) "“Bill C-8, An Act to amend the Copyright Act”, 2nd reading, "
+                       (em "House of Commons Debates")
+                       ", 41-2, No 9 (28 October 2013) at 1504 (Hon Steven Blaney)"
+                       (span [[data-short-form-pre-placeholder "debate-3"]]) "."))))
 
 (define (render-magazine/news w pinpoint parenthetical)
   (define url (hash-ref w 'url))
-  (define styled-title (style-title (hash-ref w 'title)))
+  (define title-elements (style-title (hash-ref w 'title)))
   ; Note, title is the only required element.
-  `(@
-    ,(when/splice (hash-ref w 'author-family) (format-authors w) ", ")
-    "“" ,(if url `(a [[href ,url]] ,styled-title) styled-title) "”"
-    ,(when/splice (hash-ref w 'publication) ", " `(em ,(hash-ref w 'publication)))
-    ,(when/splice (hash-ref w 'year) " (" (hash-ref w 'year) ")")
-    (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-    ,(when/splice parenthetical " (" parenthetical)
-    ,(when/splice pinpoint (normalize-pinpoint pinpoint))
-    ,(when/splice parenthetical ")")
-    "."))
+  (define fragmented
+    `(
+      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w) ", "))
+      "“"
+      ,@(if url `((a [[href ,url]] ,@title-elements)) title-elements) "”"
+      ,@(when-or-empty (hash-ref w 'publication) `(", " (em ,(hash-ref w 'publication))))
+      ,@(when-or-empty (hash-ref w 'volume) `(" " ,(hash-ref w 'volume)))
+      ,@(when-or-empty (hash-ref w 'issue) `(":" ,(hash-ref w 'issue)))
+      ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
+      ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty parenthetical '(")"))
+      "."))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "Clones" #:type "magazine/news"
+                 #:title "The Case Against Clones" #:publication "The Economist" #:date "2 February 2013"
+                 #:url "https://www.economist.com")
+   (check-equal? (get-elements (cite "Clones"))
+                 `((@) "“" (a [[href "https://www.economist.com"]] "The Case Against Clones") "”, " (em "The Economist") " (2 February 2013)"
+                       (span [[data-short-form-pre-placeholder "Clones"]]) "."))
+   (declare-work #:id "Phelan" #:type "magazine/news" #:author "Benjamin Phelan"
+                 #:title "Buried Truths" #:publication "Harper's Magazine" #:volume "309" #:issue "1855"
+                 #:date "December 2004" #:first-page "70")
+   (check-equal? (get-elements (cite "Phelan"))
+                 `((@) "Benjamin Phelan, “Buried Truths”, " (em "Harper's Magazine") " 309:1855 (December 2004) 70"
+                       (span [[data-short-form-pre-placeholder "Phelan"]]) "."))
+   ))
 
 ; Sweeps through the content, replacing any data-short-form-pre-placeholder with data-short-form-placeholder.
 ; You should do this only in the note context because if a work is just "cited" (i.e. rendered inline) not in a footnote or sidenote,
@@ -815,5 +1080,5 @@
          (hash-ref short-form-needed id)))
   (if (and (attrs-have-key? tx 'data-short-form-placeholder)
            (short-form-needed? (attr-ref tx 'data-short-form-placeholder)))
-      (txexpr (get-tag tx) (get-attrs tx) `(" [" ,(hash-ref (get-work-by-id (attr-ref tx 'data-short-form-placeholder)) 'short-form) "]"))
+      (txexpr (get-tag tx) (get-attrs tx) `(" [" ,@(hash-ref (get-work-by-id (attr-ref tx 'data-short-form-placeholder)) 'short-form) "]"))
       tx))

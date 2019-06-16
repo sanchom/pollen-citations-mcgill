@@ -66,12 +66,16 @@ like this:
                        [#:publication publication (or/c string? #f) #f] ; for magazine/news
                        [#:issue issue (or/c string? #f) #f]
                        [#:citation citation (or/c string? #f) #f]
+                       [#:parallel-citation parallel-citation (or/c string? #f) #f]
                        [#:jurisdiction jurisdiction (or/c string? #f) #f]
+                       [#:case-judge case-judge (or/c string? #f) #f]
                        [#:institution institution (or/c string? #f) #f]
                        [#:legislative-body legislative-body (or/c string? #f) #f]
                        [#:number number (or/c string? #f) #f]
                        [#:chapter chapter (or/c string? #f) #f] ; for statutes
                        [#:reading reading (or/c string? #f) #f] ; for legislative debates
+                       [#:bill-status bill-status (or/c string? #f) #f]
+                       [#:eventual-statute eventual-statute (or/c string? #f) #f]
                        [#:proceedings proceedings (or/c string? #f) #f]
                        [#:publisher publisher (or/c string? #f) #f]
                        [#:publisher-location publisher-location (or/c string? #f) #f]
@@ -82,7 +86,8 @@ like this:
                        [#:pages pages (or/c string? #f) #f] ; will extract the first-page from this; incompatible with first-page
                        [#:first-page first-page (or/c string? #f) #f]
                        [#:url url (or/c string? #f) #f]
-                       [#:short-form short-form (or/c string? #f) #f]) void?]{
+                       [#:short-form short-form (or/c string? #f) #f]
+                       [#:cited-to cited-to (or/c string? #f) #f]) void?]{
 
  The @racket[id] is the string that users/authors can use to
  cite this work using @racket[cite].
@@ -123,12 +128,16 @@ like this:
                       [#:publication publication (or/c string? #f) #f] ; for magazine/news
                       [#:issue issue (or/c string? #f) #f]
                       [#:citation citation (or/c string? #f) #f]
+                      [#:parallel-citation parallel-citation (or/c string? #f) #f]
                       [#:jurisdiction jurisdiction (or/c string? #f) #f]
+                      [#:case-judge case-judge (or/c string? #f) #f]
                       [#:institution institution (or/c string? #f) #f]
                       [#:legislative-body legislative-body (or/c string? #f) #f]
                       [#:number number (or/c string? #f) #f]
                       [#:chapter chapter (or/c string? #f) #f] ; for statutes
                       [#:reading reading (or/c string? #f) #f] ; for legislative debates
+                      [#:bill-status bill-status (or/c string? #f) #f]
+                      [#:eventual-statute eventual-statute (or/c string? #f) #f]
                       [#:proceedings proceedings (or/c string? #f) #f]
                       [#:publisher publisher (or/c string? #f) #f]
                       [#:publisher-location publisher-location (or/c string? #f) #f]
