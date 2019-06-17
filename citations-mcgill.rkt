@@ -47,10 +47,10 @@
   (string? . -> . hash?)
   (hash-ref work-metadata (clean-param id)))
 
+; Helpers
 (define (declared-id? id)
   (hash-has-key? work-metadata (clean-param id)))
 
-; Helpers
 (define-syntax-rule (when-or-empty condition lst)
   (if condition lst '()))
 
@@ -580,17 +580,17 @@
           ]
          ,(when/splice c-signal (format "~a " c-signal))
          ,@(case (hash-ref w 'type)
-            [("article") (render-article w c-pinpoint c-parenthetical)]
-            [("book") (render-book w c-pinpoint c-parenthetical)]
-            [("thesis") (render-thesis w c-pinpoint c-parenthetical)]
-            [("proceedings") (render-proceedings w c-pinpoint c-parenthetical)]
-            [("unpublished") (render-unpublished w c-pinpoint c-parenthetical)]
-            [("legal-case") (render-legal-case w c-pinpoint c-parenthetical c-judge)]
-            [("legal-case-US") (render-legal-case-US w c-pinpoint c-parenthetical c-judge)]
-            [("bill") (render-bill w c-pinpoint c-parenthetical)]
-            [("statute") (render-statute w c-pinpoint c-parenthetical)]
-            [("debate") (render-debate w c-pinpoint c-speaker)]
-            [("magazine/news") (render-magazine/news w c-pinpoint c-parenthetical)]
+            [("article") (render-article-elements w c-pinpoint c-parenthetical)]
+            [("book") (render-book-elements w c-pinpoint c-parenthetical)]
+            [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical)]
+            [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical)]
+            [("unpublished") (render-unpublished-elements w c-pinpoint c-parenthetical)]
+            [("legal-case") (render-legal-case-elements w c-pinpoint c-parenthetical c-judge)]
+            [("legal-case-US") (render-legal-case-US-elements w c-pinpoint c-parenthetical c-judge)]
+            [("bill") (render-bill-elements w c-pinpoint c-parenthetical)]
+            [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
+            [("debate") (render-debate-elements w c-pinpoint c-speaker)]
+            [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical)]
             [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))
 
 (define/contract (format-authors w)
@@ -618,7 +618,7 @@
 ; -----------------------------------------------------------------------------------
 ; These are all the functions that do the citation layout.
 
-(define/contract (render-article w pinpoint parenthetical)
+(define/contract (render-article-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define title-elements (style-title (hash-ref w 'title)))
   (define fragmented
@@ -648,13 +648,14 @@
    (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018")
    (check-equal? (get-elements (cite "id2")) '((@) "Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
 
-(define (render-book w pinpoint parenthetical)
-  (define styled-title (style-title (hash-ref w 'title)))
+(define/contract (render-book-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+  (define title-elements (style-title (hash-ref w 'title)))
   ; TODO: Title style for books needs to flip if there is emphasis in the title.
   (define fragmented
     `(
       ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w) ", "))
-      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@styled-title))) `((em ,@styled-title)))
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
       " ("
       ,@(when-or-empty (hash-ref w 'publisher-location) `(,(hash-ref w 'publisher-location)))
       ,@(when-or-empty (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(": "))
@@ -680,7 +681,7 @@
                        (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
                        " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
 
-(define/contract (render-thesis w pinpoint parenthetical)
+(define/contract (render-thesis-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define title-elements (style-title (hash-ref w 'title)))
   (define fragmented
@@ -712,7 +713,8 @@
                        " (DCL Thesis, McGill University Institute of Comparative Law, 2005) [unpublished]"
                        (span [[data-short-form-pre-placeholder "id-thesis"]]) "."))))
 
-(define (render-proceedings w pinpoint parenthetical)
+(define/contract (render-proceedings-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define title-elements (style-title (hash-ref w 'title)))
   (define fragmented
     `(
@@ -749,7 +751,8 @@
                        " (Springer, 2012) 204"
                        (span [[data-short-form-pre-placeholder "id-proceedings"]]) "."))))
 
-(define (render-unpublished w pinpoint parenthetical)
+(define/contract (render-unpublished-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define title-elements (style-title (hash-ref w 'title)))
   (merge-successive-strings
    `(
@@ -778,7 +781,8 @@
                        (span [[data-short-form-pre-placeholder "McCann"]]) "."))))
 
 
-(define (render-legal-case w pinpoint parenthetical judge)
+(define/contract (render-legal-case-elements w pinpoint parenthetical judge)
+  (hash? (or/c string? #f) (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
   (define fragmented
@@ -841,7 +845,8 @@
                        " (\"[t]he failure of an administrative decision-maker\" at 174)."))))
 ; TODO: Add tests that check whether cited-to is properly being added to the short-forms.
 
-(define (render-legal-case-US w pinpoint parenthetical judge)
+(define/contract (render-legal-case-US-elements w pinpoint parenthetical judge)
+  (hash? (or/c string? #f) (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
   (define fragmented
@@ -873,7 +878,8 @@
                        ", 11 F Supp (2d) 858 (ND Tex 1998)"
                        (span [[data-short-form-pre-placeholder "Texas Beef"]]) "."))))
 
-(define (render-bill w pinpoint parenthetical)
+(define/contract (render-bill-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
   (define fragmented
@@ -910,7 +916,8 @@
                        ", 1st Sess, 37th Leg, Quebec, 2004 (assented to 10 November 2004), SQ 2004, c 23"
                        (span [[data-short-form-pre-placeholder "Bill 59"]]) "."))))
 
-(define (render-statute w pinpoint parenthetical)
+(define/contract (render-statute-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
   (define fragmented
@@ -939,7 +946,8 @@
                  `((@) (em "Income Tax Act") ", RSC 1985, c 1 (5th Supp), s 18(1)(m)(iv)(c)"
                        (span [[data-short-form-pre-placeholder "ITA"]]) "."))))
 
-(define (render-debate w pinpoint speaker)
+(define/contract (render-debate-elements w pinpoint speaker)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title (hash-ref w 'title))
   (define doc-string-elements
@@ -985,7 +993,8 @@
                        ", 41-2, No 9 (28 October 2013) at 1504 (Hon Steven Blaney)"
                        (span [[data-short-form-pre-placeholder "debate-3"]]) "."))))
 
-(define (render-magazine/news w pinpoint parenthetical)
+(define/contract (render-magazine/news-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title-elements (style-title (hash-ref w 'title)))
   ; Note, title is the only required element.
