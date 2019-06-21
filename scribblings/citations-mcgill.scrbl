@@ -163,7 +163,8 @@ like this:
                [#:parenthetical parenthetical (or/c string? #f) #f]
                [#:judge judge (or/c string? #f) #f]
                [#:speaker speaker (or/c string? #f) #f]
-               [#:signal signal (or/c string? #f) #f])
+               [#:signal signal (or/c string? #f) #f]
+               [#:terminal terminal string? "."])
          txexpr?]{
 
  Produces a @racket[txexpr] with a formatted citation. The
@@ -184,6 +185,11 @@ like this:
 
  @racket[signal] is an introductory signal to prepend to the
  citation ("See", "See also", "See generally", etc.)
+
+ You can change the @racket[terminal] to end the citation in
+ something other than a "." A common alternative is ";" in
+ order to join multiple citations together in a single
+ footnote signal as described at McGill 1.3.4.
 
  Only when a call to @racket[cite] is within your Pollen
  system's note-tag context will the resulting citation be

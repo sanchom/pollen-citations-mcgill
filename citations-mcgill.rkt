@@ -232,12 +232,12 @@
 
 (module+ test
   (check-not-exn (λ () (validate-work-or-die (hash 'type "article"
-                                             'author-given "Sancho"
-                                             'author-family "McCann"
-                                             'title "My article"
-                                             'journal "A journal"
-                                             'volume "2"
-                                             'short-form "McCann"))))
+                                                   'author-given "Sancho"
+                                                   'author-family "McCann"
+                                                   'title "My article"
+                                                   'journal "A journal"
+                                                   'volume "2"
+                                                   'short-form "McCann"))))
   (check-exn exn:fail? (λ () (validate-work-or-die (hash 'type "garbage"
                                                          'author-given "Sancho"
                                                          'author-family "McCann"
@@ -506,9 +506,10 @@
   ; TODO (check-equal? (style-title "multiple *italics* sections *in* title") (txexpr '@ empty '("multiple " (em "italics") " sections " (em "in") " title")))
   )
 
-(define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+(define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
   (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
-                                   #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
+                                   #:judge (or/c string? #f) #:speaker (or/c string? #f)
+                                   #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
@@ -523,11 +524,13 @@
          ,(when/splice c-judge ", " c-judge)
          ,(when/splice c-parenthetical ")")
          ,(when/splice c-speaker " (" c-speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
-         "."))
+         ,terminal))
 
-(define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+(define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f]
+                             #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
   (((and/c string? declared-id?) exact-nonnegative-integer?) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
-                                                              #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
+                                                              #:judge (or/c string? #f) #:speaker (or/c string? #f)
+                                                              #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
@@ -544,7 +547,7 @@
                                        ,@(when-or-empty c-judge `(", " ,c-judge))
                                        ,@(when-or-empty c-parenthetical '(")"))
                                        ,@(when-or-empty c-speaker `(" (" ,c-speaker ")"))
-                                       "."))))
+                                       ,terminal))))
 
 (module+ test
   (test-begin
@@ -561,9 +564,11 @@
 
 ; Renders a full note-form of the work, which will possibly be replaced
 ; later by an ibid or supra if necessary.
-(define/contract (cite id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f])
+(define/contract (cite id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f]
+                       #:signal [signal #f] #:terminal [terminal "."])
   (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
-                                   #:judge (or/c string? #f) #:speaker (or/c string? #f) #:signal (or/c string? #f)) . ->* . txexpr?)
+                                   #:judge (or/c string? #f) #:speaker (or/c string? #f)
+                                   #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
@@ -578,20 +583,23 @@
           [data-citation-speaker ,(if c-speaker c-speaker "false")]
           [data-citation-signal ,(if c-signal c-signal "false")]
           ]
-         ,(when/splice c-signal (format "~a " c-signal))
-         ,@(case (hash-ref w 'type)
-            [("article") (render-article-elements w c-pinpoint c-parenthetical)]
-            [("book") (render-book-elements w c-pinpoint c-parenthetical)]
-            [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical)]
-            [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical)]
-            [("unpublished") (render-unpublished-elements w c-pinpoint c-parenthetical)]
-            [("legal-case") (render-legal-case-elements w c-pinpoint c-parenthetical c-judge)]
-            [("legal-case-US") (render-legal-case-US-elements w c-pinpoint c-parenthetical c-judge)]
-            [("bill") (render-bill-elements w c-pinpoint c-parenthetical)]
-            [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
-            [("debate") (render-debate-elements w c-pinpoint c-speaker)]
-            [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical)]
-            [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])))
+         ,@(merge-successive-strings
+            `(
+              ,@(when-or-empty c-signal `(,(format "~a " c-signal)))
+              ,@(case (hash-ref w 'type)
+                  [("article") (render-article-elements w c-pinpoint c-parenthetical)]
+                  [("book") (render-book-elements w c-pinpoint c-parenthetical)]
+                  [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical)]
+                  [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical)]
+                  [("unpublished") (render-unpublished-elements w c-pinpoint c-parenthetical)]
+                  [("legal-case") (render-legal-case-elements w c-pinpoint c-parenthetical c-judge)]
+                  [("legal-case-US") (render-legal-case-US-elements w c-pinpoint c-parenthetical c-judge)]
+                  [("bill") (render-bill-elements w c-pinpoint c-parenthetical)]
+                  [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
+                  [("debate") (render-debate-elements w c-pinpoint c-speaker)]
+                  [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical)]
+                  [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])
+              ,terminal))))
 
 (define/contract (format-authors w)
   (hash? . -> . string?)
@@ -637,16 +645,15 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
   (test-begin
    (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018")
-   (check-equal? (get-elements (cite "id1")) '((@) "Sancho McCann, “Title” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "id1"]]) "."))
+   (check-equal? (get-elements (cite "id1")) '("Sancho McCann, “Title” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "id1"]]) "."))
    (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018")
-   (check-equal? (get-elements (cite "id2")) '((@) "Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
+   (check-equal? (get-elements (cite "id2")) '("Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
 
 (define/contract (render-book-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -666,8 +673,7 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -677,9 +683,9 @@
                  #:title "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science"
                  #:publisher-location "Boston" #:publisher "Elsevier/Academic Press" #:year "2005")
    (check-equal? (get-elements (cite "id3"))
-                 '((@) "Monique Mattei Ferraro & Eoghan Casey, "
-                       (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
-                       " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
+                 '("Monique Mattei Ferraro & Eoghan Casey, "
+                   (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
+                   " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
 
 (define/contract (render-thesis-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -697,9 +703,7 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty parenthetical '(")"))
-      "."
-      ))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -708,10 +712,10 @@
                  #:title "L'isolement, le retrait et l'arrêt d'agir dans les centre de réadaptation pour jeunes"
                  #:thesis-description "DCL Thesis" #:institution "McGill University Institute of Comparative Law" #:year "2005")
    (check-equal? (get-elements (cite "id-thesis"))
-                 '((@) "Julie Desrosiers, "
-                       (em "L'isolement, le retrait et l'arrêt d'agir dans les centre de réadaptation pour jeunes")
-                       " (DCL Thesis, McGill University Institute of Comparative Law, 2005) [unpublished]"
-                       (span [[data-short-form-pre-placeholder "id-thesis"]]) "."))))
+                 '("Julie Desrosiers, "
+                   (em "L'isolement, le retrait et l'arrêt d'agir dans les centre de réadaptation pour jeunes")
+                   " (DCL Thesis, McGill University Institute of Comparative Law, 2005) [unpublished]"
+                   (span [[data-short-form-pre-placeholder "id-thesis"]]) "."))))
 
 (define/contract (render-proceedings-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -734,8 +738,7 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -746,10 +749,10 @@
                  #:proceedings "11th Asian Conference on Computer Vision" #:year "2012"
                  #:first-page "204" #:publisher "Springer")
    (check-equal? (get-elements (cite "id-proceedings"))
-                 '((@) "Sancho McCann & David G Lowe, “Spatially-local coding for object recognition” in "
-                       (em "11th Asian Conference on Computer Vision")
-                       " (Springer, 2012) 204"
-                       (span [[data-short-form-pre-placeholder "id-proceedings"]]) "."))))
+                 '("Sancho McCann & David G Lowe, “Spatially-local coding for object recognition” in "
+                   (em "11th Asian Conference on Computer Vision")
+                   " (Springer, 2012) 204"
+                   (span [[data-short-form-pre-placeholder "id-proceedings"]]) "."))))
 
 (define/contract (render-unpublished-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -767,8 +770,7 @@
      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-     ,@(when-or-empty parenthetical '(")"))
-     ".")))
+     ,@(when-or-empty parenthetical '(")")))))
 
 (module+ test
   (test-begin
@@ -777,8 +779,8 @@
                  #:description "course report, Information Visualization, Department of Computer Science, University of British Columbia"
                  #:year "2006")
    (check-equal? (get-elements (cite "McCann"))
-                 `((@) "Sancho McCann, “Atmospheric Sounding Visualization” (course report, Information Visualization, Department of Computer Science, University of British Columbia, 2006) [unpublished]"
-                       (span [[data-short-form-pre-placeholder "McCann"]]) "."))))
+                 `("Sancho McCann, “Atmospheric Sounding Visualization” (course report, Information Visualization, Department of Computer Science, University of British Columbia, 2006) [unpublished]"
+                   (span [[data-short-form-pre-placeholder "McCann"]]) "."))))
 
 
 (define/contract (render-legal-case-elements w pinpoint parenthetical judge)
@@ -799,8 +801,7 @@
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -808,14 +809,14 @@
    (declare-work #:id "Fisher" #:type "legal-case"
                  #:title "Fisher v Fisher" #:citation "2008 ONCA 11" #:short-form "Fisher")
    (check-equal? (get-elements (cite "Fisher" #:pinpoint "paras 52--59"))
-                 '((@) (em "Fisher v Fisher") ", 2008 ONCA 11 at paras 52--59"
-                       (span [[data-short-form-pre-placeholder "Fisher"]]) "."))
+                 '((em "Fisher v Fisher") ", 2008 ONCA 11 at paras 52--59"
+                                          (span [[data-short-form-pre-placeholder "Fisher"]]) "."))
    (declare-work #:id "Gordon" #:type "legal-case"
                  #:title "Gordon v Goertz" #:citation "[1996] 2 SCR 27" #:parallel-citation "134 DLR (4th) 321"
                  #:short-form "Gordon")
    (check-equal? (get-elements (cite "Gordon" #:pinpoint "para 13"))
-                 '((@) (em "Gordon v Goertz") ", [1996] 2 SCR 27 at para 13, 134 DLR (4th) 321"
-                       (span [[data-short-form-pre-placeholder "Gordon"]]) "."))
+                 '((em "Gordon v Goertz") ", [1996] 2 SCR 27 at para 13, 134 DLR (4th) 321"
+                                          (span [[data-short-form-pre-placeholder "Gordon"]]) "."))
    ; See 3.6.2 for "cited to" rules; these are not context-free. They depend on whether
    ; the first occurrence had a pinpoint and whether the work is ever pinpointed later.
    ; However, it is clear from the examples at 1.3.7 that the requirements for cited-to
@@ -839,10 +840,10 @@
                  #:short-form "Oakwood")
    (check-equal? (get-elements (cite "Oakwood" #:pinpoint "174"
                                      #:parenthetical "\"[t]he failure of an administrative decision-maker\""))
-                 '((@) (em "Oakwood Development Ltd v St François Xavier (Municipality)")
-                       ", [1985] 2 SCR 164, 20 DLR (4th) 641, Wilson J"
-                       (span [[data-short-form-pre-placeholder "Oakwood"]])
-                       " (\"[t]he failure of an administrative decision-maker\" at 174)."))))
+                 '((em "Oakwood Development Ltd v St François Xavier (Municipality)")
+                   ", [1985] 2 SCR 164, 20 DLR (4th) 641, Wilson J"
+                   (span [[data-short-form-pre-placeholder "Oakwood"]])
+                   " (\"[t]he failure of an administrative decision-maker\" at 174)."))))
 ; TODO: Add tests that check whether cited-to is properly being added to the short-forms.
 
 (define/contract (render-legal-case-US-elements w pinpoint parenthetical judge)
@@ -863,8 +864,7 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -874,9 +874,9 @@
                  #:url "https://law.justia.com/cases/federal/district-courts/FSupp2/11/858/2289177/"
                  #:jurisdiction "ND Tex" #:year "1998" #:short-form "Texas Beef")
    (check-equal? (get-elements (cite "Texas Beef"))
-                 '((@) (em (a [[href "https://law.justia.com/cases/federal/district-courts/FSupp2/11/858/2289177/"]] "Texas Beef Group v Winfrey"))
-                       ", 11 F Supp (2d) 858 (ND Tex 1998)"
-                       (span [[data-short-form-pre-placeholder "Texas Beef"]]) "."))))
+                 '((em (a [[href "https://law.justia.com/cases/federal/district-courts/FSupp2/11/858/2289177/"]] "Texas Beef Group v Winfrey"))
+                   ", 11 F Supp (2d) 858 (ND Tex 1998)"
+                   (span [[data-short-form-pre-placeholder "Texas Beef"]]) "."))))
 
 (define/contract (render-bill-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -893,8 +893,7 @@
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty (hash-ref w 'bill-status) `(" (" ,(hash-ref w 'bill-status) ")"))
       ,@(when-or-empty (hash-ref w 'eventual-statute) `(", " ,(hash-ref w 'eventual-statute)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-      "."))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -904,17 +903,17 @@
                  #:legislative-body "1st Sess, 38th Parl" #:year "2005"
                  #:bill-status "as passed by the House of Commons 13 June 2005")
    (check-equal? (get-elements (cite "C-26" #:pinpoint "clause 5(1)(e)"))
-                 `((@) "Bill C-26, " (em "An Act to establish the Canada Border Services Agency")
-                       ", 1st Sess, 38th Parl, 2005, cl 5(1)(e) (as passed by the House of Commons 13 June 2005)"
-                       (span [[data-short-form-pre-placeholder "C-26"]]) "."))
+                 `("Bill C-26, " (em "An Act to establish the Canada Border Services Agency")
+                                 ", 1st Sess, 38th Parl, 2005, cl 5(1)(e) (as passed by the House of Commons 13 June 2005)"
+                                 (span [[data-short-form-pre-placeholder "C-26"]]) "."))
    (declare-work #:id "Bill 59" #:type "bill" #:number "59"
                  #:title "An Act to amend the Civil Code as regards marriage"
                  #:legislative-body "1st Sess, 37th Leg, Quebec" #:year "2004"
                  #:bill-status "assented to 10 November 2004" #:eventual-statute "SQ 2004, c 23")
    (check-equal? (get-elements (cite "Bill 59"))
-                 `((@) "Bill 59, " (em "An Act to amend the Civil Code as regards marriage")
-                       ", 1st Sess, 37th Leg, Quebec, 2004 (assented to 10 November 2004), SQ 2004, c 23"
-                       (span [[data-short-form-pre-placeholder "Bill 59"]]) "."))))
+                 `("Bill 59, " (em "An Act to amend the Civil Code as regards marriage")
+                               ", 1st Sess, 37th Leg, Quebec, 2004 (assented to 10 November 2004), SQ 2004, c 23"
+                               (span [[data-short-form-pre-placeholder "Bill 59"]]) "."))))
 
 (define/contract (render-statute-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -929,8 +928,7 @@
       "c " ,(hash-ref w 'chapter)
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical ")"))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-      "."))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -938,13 +936,13 @@
    (declare-work #:id "Criminal Code" #:type "statute" #:title "Criminal Code"
                  #:volume "RSC" #:year "1985" #:chapter "C-46")
    (check-equal? (get-elements (cite "Criminal Code" #:pinpoint "Section 745"))
-                 `((@) (em "Criminal Code") ", RSC 1985, c C-46, s 745"
-                       (span [[data-short-form-pre-placeholder "Criminal Code"]]) "."))
+                 `((em "Criminal Code") ", RSC 1985, c C-46, s 745"
+                                        (span [[data-short-form-pre-placeholder "Criminal Code"]]) "."))
    (declare-work #:id "ITA" #:type "statute" #:title "Income Tax Act"
                  #:volume "RSC" #:year "1985" #:chapter "1 (5th Supp)")
    (check-equal? (get-elements (cite "ITA" #:pinpoint "Section 18(1)(m)(iv)(c)"))
-                 `((@) (em "Income Tax Act") ", RSC 1985, c 1 (5th Supp), s 18(1)(m)(iv)(c)"
-                       (span [[data-short-form-pre-placeholder "ITA"]]) "."))))
+                 `((em "Income Tax Act") ", RSC 1985, c 1 (5th Supp), s 18(1)(m)(iv)(c)"
+                                         (span [[data-short-form-pre-placeholder "ITA"]]) "."))))
 
 (define/contract (render-debate-elements w pinpoint speaker)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -964,8 +962,7 @@
       " (" ,(hash-ref w 'year) ")"
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty speaker `(" (" ,speaker ")"))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
-      "."))
+      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -974,24 +971,24 @@
                  #:proceedings "House of Commons Debates" #:legislative-body "37-1" #:volume "No 64"
                  #:date "17 May 2001" #:short-form "Debate: 17 May 2001")
    (check-equal? (get-elements (cite "debate-1" #:pinpoint "4175" #:speaker "Hon Elinor Caplan"))
-                 `((@) (em "House of Commons Debates") ", 37-1, No 64 (17 May 2001) at 4175 (Hon Elinor Caplan)"
-                       (span [[data-short-form-pre-placeholder "debate-1"]]) "."))
+                 `((em "House of Commons Debates") ", 37-1, No 64 (17 May 2001) at 4175 (Hon Elinor Caplan)"
+                                                   (span [[data-short-form-pre-placeholder "debate-1"]]) "."))
    (declare-work #:id "debate-2" #:type "debate" #:jurisdiction "Quebec, National Assembly"
                  #:proceedings "Votes and Proceedings" #:legislative-body "39-1" #:volume "No 48"
                  #:date "18 June 2009" #:short-form "Debate: 18 June 2009")
    (check-equal? (get-elements (cite "debate-2" #:pinpoint "517"))
-                 `((@) "Quebec, National Assembly, " (em "Votes and Proceedings")
-                       ", 39-1, No 48 (18 June 2009) at 517"
-                       (span [[data-short-form-pre-placeholder "debate-2"]]) "."))
+                 `("Quebec, National Assembly, " (em "Votes and Proceedings")
+                                                 ", 39-1, No 48 (18 June 2009) at 517"
+                                                 (span [[data-short-form-pre-placeholder "debate-2"]]) "."))
    (declare-work #:id "debate-3" #:type "debate" #:jurisdiction "Canada"
                  #:title "Bill C-8, An Act to amend the Copyright Act" #:reading "2nd reading"
                  #:proceedings "House of Commons Debates" #:legislative-body "41-2" #:volume "No 9"
                  #:date "28 October 2013" #:short-form "Copyright Debate")
    (check-equal? (get-elements (cite "debate-3" #:pinpoint "1504" #:speaker "Hon Steven Blaney"))
-                 `((@) "“Bill C-8, An Act to amend the Copyright Act”, 2nd reading, "
-                       (em "House of Commons Debates")
-                       ", 41-2, No 9 (28 October 2013) at 1504 (Hon Steven Blaney)"
-                       (span [[data-short-form-pre-placeholder "debate-3"]]) "."))))
+                 `("“Bill C-8, An Act to amend the Copyright Act”, 2nd reading, "
+                   (em "House of Commons Debates")
+                   ", 41-2, No 9 (28 October 2013) at 1504 (Hon Steven Blaney)"
+                   (span [[data-short-form-pre-placeholder "debate-3"]]) "."))))
 
 (define/contract (render-magazine/news-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -1011,8 +1008,7 @@
       (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty parenthetical '(")"))
-      "."))
+      ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -1021,15 +1017,14 @@
                  #:title "The Case Against Clones" #:publication "The Economist" #:date "2 February 2013"
                  #:url "https://www.economist.com")
    (check-equal? (get-elements (cite "Clones"))
-                 `((@) "“" (a [[href "https://www.economist.com"]] "The Case Against Clones") "”, " (em "The Economist") " (2 February 2013)"
+                 `("“" (a [[href "https://www.economist.com"]] "The Case Against Clones") "”, " (em "The Economist") " (2 February 2013)"
                        (span [[data-short-form-pre-placeholder "Clones"]]) "."))
    (declare-work #:id "Phelan" #:type "magazine/news" #:author "Benjamin Phelan"
                  #:title "Buried Truths" #:publication "Harper's Magazine" #:volume "309" #:issue "1855"
                  #:date "December 2004" #:first-page "70")
    (check-equal? (get-elements (cite "Phelan"))
-                 `((@) "Benjamin Phelan, “Buried Truths”, " (em "Harper's Magazine") " 309:1855 (December 2004) 70"
-                       (span [[data-short-form-pre-placeholder "Phelan"]]) "."))
-   ))
+                 `("Benjamin Phelan, “Buried Truths”, " (em "Harper's Magazine") " 309:1855 (December 2004) 70"
+                                                        (span [[data-short-form-pre-placeholder "Phelan"]]) "."))))
 
 ; Sweeps through the content, replacing any data-short-form-pre-placeholder with data-short-form-placeholder.
 ; You should do this only in the note context because if a work is just "cited" (i.e. rendered inline) not in a footnote or sidenote,
