@@ -165,6 +165,19 @@
   (check-false (year-is-necessary? "[1977] 1 SCR 193"))
   (check-false (year-is-necessary? "2012 SCC 1")))
 
+(define/contract (year-is-different? work)
+  (hash? . -> . boolean?)
+  ; Is there a declared year that is different than the first four digits of the citation?
+  (and (hash-ref work 'year)
+       (not (year-is-necessary? (hash-ref work 'citation)))
+       (not (equal? (hash-ref work 'year) (first (regexp-match #px"[[:digit:]]{4}" (first (regexp-match #px"\\S*[[:space:]]" (hash-ref work 'citation)))))))))
+
+(module+ test
+  (check-false (year-is-different? (hash 'year "2018" 'citation "2018 SCC 1")))
+  (check-false (year-is-different? (hash 'year #f 'citation "2018 SCC 1")))
+  (check-true (year-is-different? (hash 'year "2017" 'citation "[2018] 1 SCR 1")))
+  (check-false (year-is-different? (hash 'year "2017" 'citation "[2017] 1 SCR 1"))))
+
 (define/contract (clean-param param)
   ((or/c string? #f) . -> . (or/c string? #f))
   (if param (string-normalize-spaces param) param))
@@ -517,14 +530,24 @@
   (define c-signal (clean-param signal))
   (define w (hash-ref work-metadata (clean-param id)))
   `(span [[class "bibliography-entry"] [data-citation-id ,(clean-param id)]]
-         ,(when/splice c-signal c-signal " ")
-         ,(if c-signal `(em "ibid") `(em "Ibid"))
-         ,(when/splice c-parenthetical " (" c-parenthetical)
-         ,(when/splice c-pinpoint (normalize-pinpoint c-pinpoint))
-         ,(when/splice c-judge ", " c-judge)
-         ,(when/splice c-parenthetical ")")
-         ,(when/splice c-speaker " (" c-speaker ")") ; Only relevant for debates (TODO: consider specializing back-reference forms).
-         ,terminal))
+         ,@(merge-successive-strings
+            `(
+              ,@(when-or-empty c-signal `(,c-signal " "))
+              ,(if c-signal `(em "ibid") `(em "Ibid"))
+              ,@(when-or-empty c-parenthetical `(" (" ,c-parenthetical))
+              ,@(when-or-empty c-pinpoint `(,(normalize-pinpoint c-pinpoint)))
+              ,@(when-or-empty c-judge `(", " ,c-judge))
+              ,@(when-or-empty c-parenthetical '(")"))
+              ,@(when-or-empty c-speaker `(" (" ,c-speaker ")")) ; Only relevant for debates (TODO: consider specializing back-reference forms).
+              ,terminal))))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "persons" #:type "legal-case"
+                 #:title "Edwards v Canada (AG)" #:year "1929" #:citation "[1930] AC 124"
+                 #:parallel-citation "1929 UKPC 86" #:short-form "*Persons Case*")
+   (check-equal? (get-elements (cite-ibid "persons"))
+                 `((em "Ibid") "."))))
 
 (define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f]
                              #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
@@ -622,6 +645,8 @@
                                       'author2-given "Bailey" 'author2-family "Fox"
                                       'author3-given "Nora" 'author3-family "Parker")) "Natasha Novac, Bailey Fox & Nora Parker"))
 
+(define (short-form-pre-placeholder id)
+  `(span [[data-short-form-pre-placeholder ,id]]))
 
 ; -----------------------------------------------------------------------------------
 ; These are all the functions that do the citation layout.
@@ -642,7 +667,7 @@
       ,(hash-ref w 'journal)
       ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
@@ -670,7 +695,7 @@
       ,@(when-or-empty (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(", "))
       ,(hash-ref w 'year)
       ")"
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
@@ -700,7 +725,7 @@
       ,(hash-ref w 'institution) ", "
       ,(hash-ref w 'year)
       ") [unpublished]"
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
@@ -735,7 +760,7 @@
       ,(hash-ref w 'year)
       ")"
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
@@ -767,7 +792,7 @@
      ,(hash-ref w 'year)
      ")"
      " [unpublished]"
-     (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+     ,(short-form-pre-placeholder (hash-ref w 'id))
      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
      ,@(when-or-empty parenthetical '(")")))))
@@ -790,14 +815,15 @@
   (define fragmented
     `(
       (em ,(if url `(a [[href ,url]] ,title) title))
-      ,@(when-or-empty (year-is-necessary? (hash-ref w 'citation)) `(" (" ,(hash-ref w 'year) ")"))
+      ,@(when-or-empty (or (year-is-necessary? (hash-ref w 'citation))
+                           (year-is-different? w)) `(" (" ,(hash-ref w 'year) ")"))
       ", "
       ,(hash-ref w 'citation)
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ; If there is a parallel citation, put the pinpoint first.
       ,@(when-or-empty (hash-ref w 'parallel-citation) `(", " ,(hash-ref w 'parallel-citation)))
       ,@(when-or-empty (hash-ref w 'case-judge) `(", " ,(hash-ref w 'case-judge)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
@@ -843,7 +869,13 @@
                  '((em "Oakwood Development Ltd v St François Xavier (Municipality)")
                    ", [1985] 2 SCR 164, 20 DLR (4th) 641, Wilson J"
                    (span [[data-short-form-pre-placeholder "Oakwood"]])
-                   " (\"[t]he failure of an administrative decision-maker\" at 174)."))))
+                   " (\"[t]he failure of an administrative decision-maker\" at 174)."))
+   (declare-work #:id "persons2" #:type "legal-case"
+                 #:title "Edwards v Canada (AG)" #:year "1929" #:citation "[1930] AC 124"
+                 #:parallel-citation "1929 UKPC 86" #:short-form "*Persons Case 2*")
+   (check-equal? (get-elements (cite "persons2"))
+                 `((em "Edwards v Canada (AG)") " (1929), [1930] AC 124, 1929 UKPC 86"
+                                                (span [[data-short-form-pre-placeholder "persons2"]]) "."))))
 ; TODO: Add tests that check whether cited-to is properly being added to the short-forms.
 
 (define/contract (render-legal-case-US-elements w pinpoint parenthetical judge)
@@ -861,7 +893,7 @@
       ,(hash-ref w 'year)
       ")"
       ,@(when-or-empty (and (not parenthetical) judge) `(", " ,judge))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical judge) `(", " ,judge))
       ,@(when-or-empty parenthetical '(")"))))
@@ -893,7 +925,7 @@
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty (hash-ref w 'bill-status) `(" (" ,(hash-ref w 'bill-status) ")"))
       ,@(when-or-empty (hash-ref w 'eventual-statute) `(", " ,(hash-ref w 'eventual-statute)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
+      ,(short-form-pre-placeholder (hash-ref w 'id))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -928,7 +960,7 @@
       "c " ,(hash-ref w 'chapter)
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical ")"))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
+      ,(short-form-pre-placeholder (hash-ref w 'id))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -962,7 +994,7 @@
       " (" ,(hash-ref w 'year) ")"
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty speaker `(" (" ,speaker ")"))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])))
+      ,(short-form-pre-placeholder (hash-ref w 'id))))
   (merge-successive-strings fragmented))
 
 (module+ test
@@ -1005,7 +1037,7 @@
       ,@(when-or-empty (hash-ref w 'issue) `(":" ,(hash-ref w 'issue)))
       ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
-      (span [[data-short-form-pre-placeholder ,(format "~a" (hash-ref w 'id))]])
+      ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
