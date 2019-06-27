@@ -81,7 +81,7 @@
 (define/contract (valid-work-type? type)
   (string? . -> . boolean?)
   (if (member type '("article" "thesis" "proceedings" "unpublished" "legal-case" "legal-case-US"
-                               "bill" "statute" "debate" "book" "magazine/news"))
+                               "bill" "statute" "debate" "book" "magazine/news" "custom"))
       #t #f))
 
 (module+ test
@@ -241,6 +241,7 @@
     [("debate") (validate-debate w)]
     [("book") (validate-book w)]
     [("magazine/news") (validate-magazine/news w)]
+    [("custom") (validate-custom w)]
     [else (raise-user-error "Unrecognized type for work: " (hash-ref w 'type))]))
 
 (module+ test
@@ -312,6 +313,9 @@
 (define (validate-magazine/news w)
   (validate-mandatory-elements "magazine/news" w '(title)))
 
+(define (validate-custom w)
+  (validate-mandatory-elements "custom" w '(custom-format)))
+
 (define (validate-legal-case w)
   (validate-mandatory-elements "legal-case" w '(title citation))
   (when (and (hash-ref w 'cited-to) (not (string-contains? (hash-ref w 'citation) (hash-ref w 'cited-to))))
@@ -366,6 +370,7 @@
                       #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                       #:first-page [first-page #f]
                       #:url [url #f]
+                      #:custom-format [custom-format #f] ; only for type "custom"
                       #:short-form [short-form #f]
                       #:cited-to [cited-to #f])
   (define cleaned-id (clean-param id))
@@ -410,8 +415,9 @@
                   'forthcoming forthcoming
                   'first-page (if pages (extract-first-page pages) first-page)
                   'url url
+                  'custom-format (clean-param custom-format)
                   'short-form (if short-form
-                                  (style-title (clean-param short-form))
+                                  (style-markedup-text (clean-param short-form))
                                   (make-short-form type (if author (get-family-from-author author) (clean-param author-family)) title))
                   'cited-to cited-to))
   (validate-work-or-die w)
@@ -456,6 +462,7 @@
                      #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                      #:first-page [first-page #f]
                      #:url [url #f]
+                     #:custom-format [custom-format #f]
                      #:short-form [short-form #f])
   (define id (format "unidentified-work-~a" unidentified-work-count))
   (set! unidentified-work-count (+ 1 unidentified-work-count))
@@ -496,27 +503,28 @@
                 #:pages pages
                 #:first-page first-page
                 #:url url
+                #:custom-format custom-format
                 #:short-form short-form)
   (cite id))
 
-(define/contract (style-title markedup-title)
+(define/contract (style-markedup-text markedup-text)
   (string? . -> . txexpr-elements?)
-  (define italic-range (regexp-match-positions #rx"\\*.*\\*" markedup-title))
+  (define italic-range (regexp-match-positions #rx"\\*.*?\\*" markedup-text))
   (if italic-range
-      (let* ([before (substring markedup-title 0 (car (car italic-range)))]
-             [special-content (substring markedup-title (+ (car (car italic-range)) 1) (- (cdr (car italic-range)) 1))]
-             [after (substring markedup-title (cdr (car italic-range)))])
+      (let* ([before (substring markedup-text 0 (car (car italic-range)))]
+             [special-content (substring markedup-text (+ (car (car italic-range)) 1) (- (cdr (car italic-range)) 1))]
+             [after (substring markedup-text (cdr (car italic-range)))])
         `(,@(when-or-empty (non-empty-string? before) `(,before))
           (em ,special-content)
-          ,@(when-or-empty (non-empty-string? after) `(,after))))
-      `(,markedup-title)))
+          ,@(when-or-empty (non-empty-string? after) `(,@(style-markedup-text after)))))
+      `(,markedup-text)))
 
 (module+ test
-  (check-equal? (style-title "title") '("title"))
-  (check-equal? (style-title "title *with italics*") '("title " (em "with italics")))
-  (check-equal? (style-title "*italics* at start of title") '((em "italics") " at start of title"))
-  (check-equal? (style-title "*entire title italics*") '((em "entire title italics")))
-  ; TODO (check-equal? (style-title "multiple *italics* sections *in* title") (txexpr '@ empty '("multiple " (em "italics") " sections " (em "in") " title")))
+  (check-equal? (style-markedup-text "title") '("title"))
+  (check-equal? (style-markedup-text "title *with italics*") '("title " (em "with italics")))
+  (check-equal? (style-markedup-text "*italics* at start of title") '((em "italics") " at start of title"))
+  (check-equal? (style-markedup-text "*entire title italics*") '((em "entire title italics")))
+  (check-equal? (style-markedup-text "multiple *italics* sections *in* title") '("multiple " (em "italics") " sections " (em "in") " title"))
   )
 
 (define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
@@ -621,7 +629,8 @@
                   [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
                   [("debate") (render-debate-elements w c-pinpoint c-speaker)]
                   [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical)]
-                  [else (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])
+                  [("custom") (render-custom-elements w c-pinpoint c-parenthetical c-judge)]
+                  [else  (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])
               ,terminal))))
 
 (define/contract (format-authors w)
@@ -653,7 +662,7 @@
 
 (define/contract (render-article-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
     `(,(format-authors w)
       ", “"
@@ -682,7 +691,7 @@
 
 (define/contract (render-book-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   ; TODO: Title style for books needs to flip if there is emphasis in the title.
   (define fragmented
     `(
@@ -714,7 +723,7 @@
 
 (define/contract (render-thesis-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
     `(
       ,(format-authors w)
@@ -744,7 +753,7 @@
 
 (define/contract (render-proceedings-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
     `(
       ,(format-authors w)
@@ -781,7 +790,7 @@
 
 (define/contract (render-unpublished-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   (merge-successive-strings
    `(
      ,(format-authors w)
@@ -1025,7 +1034,7 @@
 (define/contract (render-magazine/news-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
-  (define title-elements (style-title (hash-ref w 'title)))
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
   ; Note, title is the only required element.
   (define fragmented
     `(
@@ -1057,6 +1066,41 @@
    (check-equal? (get-elements (cite "Phelan"))
                  `("Benjamin Phelan, “Buried Truths”, " (em "Harper's Magazine") " 309:1855 (December 2004) 70"
                                                         (span [[data-short-form-pre-placeholder "Phelan"]]) "."))))
+
+(define/contract (render-custom-elements w pinpoint parenthetical judge)
+  (hash? (or/c string? #f) (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+  `(
+    ,@(style-markedup-text (string-replace (hash-ref w 'custom-format) "[[pinpoint]]" (if pinpoint (normalize-pinpoint pinpoint) "")))
+    ,(short-form-pre-placeholder (hash-ref w 'id))))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "custom" #:type "custom"
+                 #:custom-format "Custom-formatted citation" #:short-form "Custom")
+   (check-equal? (get-elements (cite "custom"))
+                 `("Custom-formatted citation" (span [[data-short-form-pre-placeholder "custom"]]) "."))
+   (declare-work
+    #:id "charter" #:type "custom"
+    #:custom-format "*Canadian Charter of Rights and Freedoms*[[pinpoint]], Part I of the *Constitution Act, 1982*, being Schedule B to the *Canada Act 1982* (UK), 1982, c 11"
+    #:short-form "Charter")
+   (check-equal? (get-elements (cite "charter"))
+                 `((em "Canadian Charter of Rights and Freedoms")
+                   ", Part I of the "
+                   (em "Constitution Act, 1982")
+                   ", being Schedule B to the "
+                   (em "Canada Act 1982")
+                   " (UK), 1982, c 11"
+                   (span [[data-short-form-pre-placeholder "charter"]])
+                   "."))
+   (check-equal? (get-elements (cite "charter" #:pinpoint "Section 7"))
+                 `((em "Canadian Charter of Rights and Freedoms")
+                   ", s 7, Part I of the "
+                   (em "Constitution Act, 1982")
+                   ", being Schedule B to the "
+                   (em "Canada Act 1982")
+                   " (UK), 1982, c 11"
+                   (span [[data-short-form-pre-placeholder "charter"]])
+                   "."))))
 
 ; Sweeps through the content, replacing any data-short-form-pre-placeholder with data-short-form-placeholder.
 ; You should do this only in the note context because if a work is just "cited" (i.e. rendered inline) not in a footnote or sidenote,

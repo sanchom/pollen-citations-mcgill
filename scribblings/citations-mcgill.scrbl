@@ -86,6 +86,7 @@ like this:
                        [#:pages pages (or/c string? #f) #f] ; will extract the first-page from this; incompatible with first-page
                        [#:first-page first-page (or/c string? #f) #f]
                        [#:url url (or/c string? #f) #f]
+                       [#:custom-format custom-format (or/c string? #f) #f]
                        [#:short-form short-form (or/c string? #f) #f]
                        [#:cited-to cited-to (or/c string? #f) #f]) void?]{
 
@@ -94,7 +95,7 @@ like this:
 
  @racket[type] must be one of "article", "thesis",
  "proceedings", "unpublished", "legal-case", "legal-case-US",
- "bill", "statute", "debate", "book", "magazine/news".
+ "bill", "statute", "debate", "book", "magazine/news", or "custom".
 
  Depending on the @racket[type] of the work, the subsequent
  fields that are meaningful or mandatory will differ. For
@@ -107,6 +108,12 @@ like this:
  @racket[author-family] must not also be specified (and vice
  versa). These various restrictions are best presented
  through examples.
+
+ You can always fall back to a custom citation format, but
+ this requires you to lay out the citation yourself using the
+ @racket[custom-format] argument. This takes a string
+ optionally marked up with italicized sections (by
+ surrounding them with asterisks).
 
  [TODO: document what fields are meaningful for each type of work.]
 
@@ -148,6 +155,7 @@ like this:
                       [#:pages pages (or/c string? #f) #f] ; will extract the first-page from this; incompatible with first-page
                       [#:first-page first-page (or/c string? #f) #f]
                       [#:url url (or/c string? #f) #f]
+                      [#:custom-format custom-format (or/c string? #f) #f]
                       [#:short-form short-form (or/c string? #f) #f]) txexpr?]{
 
  Takes the exact same arguments as @racket[declare-work],
