@@ -39,7 +39,7 @@
 (define work-metadata (make-hash))
 (define first-place-cited (make-hash))
 (define most-recent-ibid-or-supra #f)
-(define short-form-needed (make-hash))
+(define short-form-used? (make-hash))
 (define unidentified-work-count 0)
 
 ; Accessor
@@ -262,9 +262,9 @@
 
 
 (define (validate-short-form w)
-  (define (short-form-used? s)
+  (define (short-form-taken s)
     (ormap (λ (v) (equal? (hash-ref v 'short-form) s)) (hash-values work-metadata)))
-  (when (short-form-used? (hash-ref w 'short-form))
+  (when (short-form-taken (hash-ref w 'short-form))
     (raise-user-error "Attempt to use duplicate short-form: " `(,(hash-ref w 'short-form) ,w))))
 
 (define/contract (validate-mandatory-elements type w mandatory-elements)
@@ -326,12 +326,54 @@
 (define (validate-legal-case-US w)
   (validate-mandatory-elements "legal-case-US" w '(title citation year)))
 
-(define/contract (make-short-form type author title)
-  (valid-work-type? (or/c string? #f) string? . -> . txexpr-elements?)
-  (case type
-    [("legal-case" "legal-case-US" "statute" "bill") `(,title)]
-    [("magazine/news") (merge-successive-strings `(,@(when-or-empty author `(,author ", “")) ,title ,@(when-or-empty author '("”"))))]
-    [else (merge-successive-strings `(,@(when-or-empty author `(,author ", “")) ,title ,@(when-or-empty author '("”"))))]))
+(define/contract (build-author-based-short-form author1 author2 author3)
+  (string? (or/c string? #f) (or/c string? #f) . -> . string?)
+  (apply string-append
+   `(,author1
+     ,@(when-or-empty (and author2 (not author3)) `(" & " ,author2))
+     ,@(when-or-empty (and author2 author3) `(", " ,author2))
+     ,@(when-or-empty author3 `(" & " ,author3)))))
+
+; "article" "thesis" "proceedings" "unpublished" "debate" "book" "magazine/news"
+(define/contract (default-short-form work)
+  (hash? . -> . txexpr-elements?)
+  (case (hash-ref work 'type)
+    [("legal-case" "legal-case-US" "statute") `((em ,(hash-ref work 'title)))]
+    [("bill") `(,(string-append "Bill " (hash-ref work 'number)))]
+    [("article" "thesis" "proceedings" "unpublished" "book")
+     (if (hash-ref work 'author-family)
+         `(,(build-author-based-short-form
+             (hash-ref work 'author-family)
+             (hash-ref work 'author2-family)
+             (hash-ref work 'author3-family)))
+         (raise-user-error "Failed to create default short-form for work." work))]
+    [("magazine/news")
+     (if (hash-ref work 'author-family)
+         `(,(build-author-based-short-form
+             (hash-ref work 'author-family)
+             (hash-ref work 'author2-family)
+             (hash-ref work 'author3-family)))
+         (style-markedup-text (hash-ref work 'title)))]
+    [else (raise-user-error "Can't create default short-forms for works of this type." work)]))
+
+(module+ test
+  (test-begin
+   (declare-work #:type "book" #:author "Peyton Manning" #:title "How to throw a football" #:year "2012" #:id "manning")
+   (check-equal? (hash-ref (hash-ref work-metadata "manning") 'short-form) `("Manning"))))
+  ; (check-equal? (default-short-form "book" "McCann" #f #f "Title") `("McCann"))
+  ; (check-equal? (default-short-form "article" "McCann" "Lowe" #f "Title") `("McCann & Lowe"))
+  ; (check-equal? (default-short-form "article" "McCann" "Lowe" "Muja" "Title") `("McCann, Lowe & Muja")))
+
+(define/contract (work-has-short-form? work)
+  (hash? . -> . boolean?)
+  (hash-ref work 'short-form #f))
+
+(define/contract (add-short-form-to-incomplete-work work)
+  ((not/c work-has-short-form?) . -> . hash?)
+  ; Copy the existing work structure but with a new short-form
+  (define complete-work (hash-copy work))
+  (hash-set! complete-work 'short-form (default-short-form work))
+  complete-work)
 
 (define (declare-work #:type type
                       #:id id
@@ -381,47 +423,52 @@
   (when (and pages first-page)
     (raise-user-error "You specified both pages and first-page. Use only one of these." `(,pages ,first-page)))
   (when (hash-has-key? work-metadata cleaned-id) (raise-user-error "duplicate id" cleaned-id))
-  (define w (hash 'type type
-                  'id cleaned-id
-                  'title (clean-param title)
-                  'author-given (if author (get-given-from-author author) (clean-param author-given))
-                  'author-family (if author (get-family-from-author author) (clean-param author-family))
-                  'author2-given (clean-param author2-given)
-                  'author2-family (clean-param author2-family)
-                  'author3-given (clean-param author3-given)
-                  'author3-family (clean-param author3-family)
-                  'journal (clean-param journal)
-                  'publication (clean-param publication)
-                  'year (if year year date)
-                  'volume volume
-                  'issue issue
-                  'citation (clean-param citation)
-                  'parallel-citation (clean-param parallel-citation)
-                  'jurisdiction (clean-param jurisdiction)
-                  'case-judge (clean-param case-judge)
-                  'institution (clean-param institution)
-                  'legislative-body (clean-param legislative-body)
-                  'number (clean-param number)
-                  'chapter (clean-param chapter)
-                  'bill-status (clean-param bill-status)
-                  'eventual-statute (clean-param eventual-statute)
-                  'reading (clean-param reading)
-                  'proceedings (clean-param proceedings)
-                  'publisher (clean-param publisher)
-                  'publisher-location (clean-param publisher-location)
-                  'thesis-description (clean-param thesis-description)
-                  'description (clean-param description)
-                  'comment-info (clean-param comment-info)
-                  'forthcoming forthcoming
-                  'first-page (if pages (extract-first-page pages) first-page)
-                  'url url
-                  'custom-format (clean-param custom-format)
-                  'short-form (if short-form
-                                  (style-markedup-text (clean-param short-form))
-                                  (make-short-form type (if author (get-family-from-author author) (clean-param author-family)) title))
-                  'cited-to cited-to))
-  (validate-work-or-die w)
-  (hash-set! work-metadata cleaned-id w))
+  (define incomplete-work
+    (hash 'type type
+          'id cleaned-id
+          'title (clean-param title)
+          'author-given (if author (get-given-from-author author) (clean-param author-given))
+          'author-family (if author (get-family-from-author author) (clean-param author-family))
+          'author2-given (clean-param author2-given)
+          'author2-family (clean-param author2-family)
+          'author3-given (clean-param author3-given)
+          'author3-family (clean-param author3-family)
+          'journal (clean-param journal)
+          'publication (clean-param publication)
+          'year (if year year date)
+          'volume volume
+          'issue issue
+          'citation (clean-param citation)
+          'parallel-citation (clean-param parallel-citation)
+          'jurisdiction (clean-param jurisdiction)
+          'case-judge (clean-param case-judge)
+          'institution (clean-param institution)
+          'legislative-body (clean-param legislative-body)
+          'number (clean-param number)
+          'chapter (clean-param chapter)
+          'bill-status (clean-param bill-status)
+          'eventual-statute (clean-param eventual-statute)
+          'reading (clean-param reading)
+          'proceedings (clean-param proceedings)
+          'publisher (clean-param publisher)
+          'publisher-location (clean-param publisher-location)
+          'thesis-description (clean-param thesis-description)
+          'description (clean-param description)
+          'comment-info (clean-param comment-info)
+          'forthcoming forthcoming
+          'first-page (if pages (extract-first-page pages) first-page)
+          'url url
+          'custom-format (clean-param custom-format)
+          'short-form (if short-form
+                          (style-markedup-text (clean-param short-form))
+                          #f)
+          'cited-to cited-to))
+  (define this-work
+    (if (hash-ref incomplete-work 'short-form)
+        incomplete-work
+        (add-short-form-to-incomplete-work incomplete-work)))
+  (validate-work-or-die this-work)
+  (hash-set! work-metadata cleaned-id this-work))
 
 ; Just forward all arguments to declare-work, but this form does not accept
 ; an id. It will return a txexpr to be rendered in-place.
@@ -504,7 +551,7 @@
                 #:first-page first-page
                 #:url url
                 #:custom-format custom-format
-                #:short-form short-form)
+                #:short-form id) ; short form will not be used
   (cite id))
 
 (define/contract (style-markedup-text markedup-text)
@@ -684,9 +731,9 @@
 
 (module+ test
   (test-begin
-   (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018")
+   (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:short-form "McCann, \"Title\"")
    (check-equal? (get-elements (cite "id1")) '("Sancho McCann, “Title” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "id1"]]) "."))
-   (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018")
+   (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018" #:short-form "McCann, \"Title 2\"")
    (check-equal? (get-elements (cite "id2")) '("Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
 
 (define/contract (render-book-elements w pinpoint parenthetical)
@@ -1102,6 +1149,24 @@
                    (span [[data-short-form-pre-placeholder "charter"]])
                    "."))))
 
+(define/contract (short-form-differs-from-a-default? id)
+  (string? . -> . boolean?)
+  (define work (hash-ref work-metadata id))
+  (define short-form (hash-ref work 'short-form))
+  (define default (default-short-form work))
+  (not (equal? short-form default)))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "newton" #:type "book" #:author "Cam Newton"
+                 #:title "How to recover a fumble" #:short-form "Newton" #:year "2016")
+   (check-false (short-form-differs-from-a-default? "newton"))
+   (declare-work #:id "wm2" #:type "legal-case"
+                 #:title "Overseas Tankship (UK) v Miller Steamship Co" #:year "1966"
+                 #:citation "[1967] 1 AC 617" #:parallel-citation "[1966] 2 All ER 709"
+                 #:short-form "*Wagon Mound No 2*")
+   (check-true (short-form-differs-from-a-default? "wm2"))))
+
 ; Sweeps through the content, replacing any data-short-form-pre-placeholder with data-short-form-placeholder.
 ; You should do this only in the note context because if a work is just "cited" (i.e. rendered inline) not in a footnote or sidenote,
 ; then it isn't part of the reference-counting/back-reference (ibid/supra) system.
@@ -1125,7 +1190,7 @@
       (let* ([id (attr-ref tx 'data-citation-id)]
              [first-cite (if (hash-has-key? first-place-cited id) (hash-ref first-place-cited id) #f)]
              [ibid (and first-cite (equal? (car most-recent-ibid-or-supra) id) (equal? (- footnote-number 1) (cdr most-recent-ibid-or-supra)))])
-        (when (and first-cite (not ibid)) (hash-set! short-form-needed id #t))
+        (when (and first-cite (not ibid)) (hash-set! short-form-used? id #t))
         (when (not (hash-has-key? first-place-cited id)) (hash-set! first-place-cited id footnote-number))
         (set! most-recent-ibid-or-supra (cons id footnote-number))
         ; If this work was previous cited, take its full-form citation and replace it with an ibid or supra.
@@ -1156,8 +1221,8 @@
 (define/contract (show-necessary-short-forms tx)
   (txexpr? . -> . txexpr?)
   (define (short-form-needed? id)
-    (and (hash-has-key? short-form-needed id)
-         (hash-ref short-form-needed id)))
+    (and (hash-ref short-form-used? id #f)
+         (short-form-differs-from-a-default? id)))
   (if (and (attrs-have-key? tx 'data-short-form-placeholder)
            (short-form-needed? (attr-ref tx 'data-short-form-placeholder)))
       (txexpr (get-tag tx) (get-attrs tx) `(" [" ,@(hash-ref (get-work-by-id (attr-ref tx 'data-short-form-placeholder)) 'short-form) "]"))
