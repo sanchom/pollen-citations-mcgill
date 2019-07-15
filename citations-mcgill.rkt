@@ -13,6 +13,11 @@
  format-work
  ; Actually cites the work (returns a txexpr with the formatted citation).
  cite
+ ; Get bibliography.
+ bibliography-ids
+ ; Gets a bibliography-formatted citation.
+ bib-entry
+ bib-sort-value
 
  ; To be used in your Pollen module to let the citation system
  ; do the work it needs to do.
@@ -41,6 +46,10 @@
 (define most-recent-ibid-or-supra #f)
 (define short-form-used? (make-hash))
 (define unidentified-work-count 0)
+
+(define/contract (bibliography-ids)
+  (-> (listof string?))
+  (hash-keys first-place-cited))
 
 ; Accessor
 (define/contract (get-work-by-id id)
@@ -643,10 +652,10 @@
 ; Renders a full note-form of the work, which will possibly be replaced
 ; later by an ibid or supra if necessary.
 (define/contract (cite id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f]
-                       #:signal [signal #f] #:terminal [terminal "."])
+                       #:signal [signal #f] #:terminal [terminal "."] #:format-authors-for-bibliography [bib-authors #f])
   (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
                                    #:judge (or/c string? #f) #:speaker (or/c string? #f)
-                                   #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
+                                   #:signal (or/c string? #f) #:terminal string? #:format-authors-for-bibliography boolean?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
@@ -665,26 +674,38 @@
             `(
               ,@(when-or-empty c-signal `(,(format "~a " c-signal)))
               ,@(case (hash-ref w 'type)
-                  [("article") (render-article-elements w c-pinpoint c-parenthetical)]
-                  [("book") (render-book-elements w c-pinpoint c-parenthetical)]
-                  [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical)]
-                  [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical)]
-                  [("unpublished") (render-unpublished-elements w c-pinpoint c-parenthetical)]
+                  [("article") (render-article-elements w c-pinpoint c-parenthetical bib-authors)]
+                  [("book") (render-book-elements w c-pinpoint c-parenthetical bib-authors)]
+                  [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical bib-authors)]
+                  [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical bib-authors)]
+                  [("unpublished") (render-unpublished-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("legal-case") (render-legal-case-elements w c-pinpoint c-parenthetical c-judge)]
                   [("legal-case-US") (render-legal-case-US-elements w c-pinpoint c-parenthetical c-judge)]
                   [("bill") (render-bill-elements w c-pinpoint c-parenthetical)]
                   [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
                   [("debate") (render-debate-elements w c-pinpoint c-speaker)]
-                  [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical)]
+                  [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("custom") (render-custom-elements w c-pinpoint c-parenthetical c-judge)]
                   [else  (raise-user-error "No implementation for rendering this type of citation: " (hash-ref w 'type))])
               ,terminal))))
 
-(define/contract (format-authors w)
-  (hash? . -> . string?)
-  (string-append (hash-ref w 'author-given)
-                 " "
-                 (hash-ref w 'author-family)
+(define/contract (bib-entry id)
+  ((and/c string? declared-id?) . -> . txexpr?)
+  (cite id #:format-authors-for-bibliography #t))
+
+(define/contract (bib-sort-value id)
+  ((and/c string? declared-id?) . -> . string?)
+  (define w (hash-ref work-metadata id))
+  (define type (hash-ref w 'type))
+  (case type
+    [("article" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
+    [else (hash-ref w 'title)]))
+
+(define/contract (format-authors w bibliography-formatted?)
+  (hash? boolean? . -> . string?)
+  (string-append (if bibliography-formatted? (hash-ref w 'author-family) (hash-ref w 'author-given))
+                 (if bibliography-formatted? ", " " ")
+                 (if bibliography-formatted? (hash-ref w 'author-given) (hash-ref w 'author-family))
                  (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
                  (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
                  (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
@@ -707,11 +728,11 @@
 ; -----------------------------------------------------------------------------------
 ; These are all the functions that do the citation layout.
 
-(define/contract (render-article-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-article-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
-    `(,(format-authors w)
+    `(,(format-authors w bib-authors)
       ", “"
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
       "”"
@@ -736,13 +757,13 @@
    (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018" #:short-form "McCann, \"Title 2\"")
    (check-equal? (get-elements (cite "id2")) '("Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
 
-(define/contract (render-book-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-book-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   ; TODO: Title style for books needs to flip if there is emphasis in the title.
   (define fragmented
     `(
-      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w) ", "))
+      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w bib-authors) ", "))
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
       " ("
       ,@(when-or-empty (hash-ref w 'publisher-location) `(,(hash-ref w 'publisher-location)))
@@ -768,12 +789,12 @@
                    (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
                    " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
 
-(define/contract (render-thesis-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-thesis-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
     `(
-      ,(format-authors w)
+      ,(format-authors w bib-authors)
       ", "
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
       " ("
@@ -798,12 +819,12 @@
                    " (DCL Thesis, McGill University Institute of Comparative Law, 2005) [unpublished]"
                    (span [[data-short-form-pre-placeholder "id-thesis"]]) "."))))
 
-(define/contract (render-proceedings-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-proceedings-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   (define fragmented
     `(
-      ,(format-authors w)
+      ,(format-authors w bib-authors)
       ", “"
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
       "” in "
@@ -835,12 +856,12 @@
                    " (Springer, 2012) 204"
                    (span [[data-short-form-pre-placeholder "id-proceedings"]]) "."))))
 
-(define/contract (render-unpublished-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-unpublished-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   (merge-successive-strings
    `(
-     ,(format-authors w)
+     ,(format-authors w bib-authors)
      ", “"
      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
      "” ("
@@ -1078,14 +1099,14 @@
                    ", 41-2, No 9 (28 October 2013) at 1504 (Hon Steven Blaney)"
                    (span [[data-short-form-pre-placeholder "debate-3"]]) "."))))
 
-(define/contract (render-magazine/news-elements w pinpoint parenthetical)
-  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+(define/contract (render-magazine/news-elements w pinpoint parenthetical bib-authors)
+  (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   ; Note, title is the only required element.
   (define fragmented
     `(
-      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w) ", "))
+      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w bib-authors) ", "))
       "“"
       ,@(if url `((a [[href ,url]] ,@title-elements)) title-elements) "”"
       ,@(when-or-empty (hash-ref w 'publication) `(", " (em ,(hash-ref w 'publication))))
