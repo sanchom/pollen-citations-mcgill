@@ -171,6 +171,19 @@
   (check-equal? (normalize-pinpoint "cls 2--3") ", cls 2--3")
   )
 
+(define/contract (strip-http/https-protocol url)
+  (string? . -> . string?)
+  (if (string-prefix? url "https://")
+      (string-replace url "https://" "")
+      (if (string-prefix? url "http://")
+          (string-replace url "http://" "")
+          url)))
+
+(module+ test
+  (check-equal? (strip-http/https-protocol "https://www.ubc.ca") "www.ubc.ca")
+  (check-equal? (strip-http/https-protocol "http://www.ubc.ca") "www.ubc.ca")
+  (check-equal? (strip-http/https-protocol "www.ubc.ca") "www.ubc.ca"))
+
 (define/contract (year-is-necessary? citation)
   (string? . -> . boolean?)
   ; Are the first alphanumeric characters in the citation a four-digit year? Ie. Is there a sequence of four consecutive
@@ -429,6 +442,9 @@
                       #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                       #:first-page [first-page #f]
                       #:url [url #f]
+                      #:display-url? [display-url? #f]
+                      #:online-type [online-description #f]
+                      #:online-title [online-title #f]
                       #:custom-format [custom-format #f] ; only for type "custom"
                       #:short-form [short-form #f]
                       #:cited-to [cited-to #f])
@@ -475,6 +491,9 @@
           'forthcoming forthcoming
           'first-page (if pages (extract-first-page pages) first-page)
           'url url
+          'display-url? display-url?
+          'online-description (clean-param online-description)
+          'online-title (clean-param online-title)
           'custom-format (clean-param custom-format)
           'short-form (if short-form
                           (style-markedup-text (clean-param short-form))
@@ -526,6 +545,9 @@
                      #:pages [pages #f] ; will extract the first-page from this; incompatible with first-page
                      #:first-page [first-page #f]
                      #:url [url #f]
+                     #:display-url? [display-url? #f]
+                     #:online-type [online-description #f]
+                     #:online-title [online-title #f]
                      #:custom-format [custom-format #f]
                      #:short-form [short-form #f])
   (define id (format "unidentified-work-~a" unidentified-work-count))
@@ -567,6 +589,9 @@
                 #:pages pages
                 #:first-page first-page
                 #:url url
+                #:display-url? display-url?
+                #:online-type online-description
+                #:online-title online-title
                 #:custom-format custom-format
                 #:short-form id) ; short form will not be used
   (cite id))
@@ -709,8 +734,8 @@
     [("article" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
     [else (hash-ref w 'title)]))
 
-(define/contract (format-authors w bibliography-formatted?)
-  (hash? boolean? . -> . string?)
+(define/contract (format-authors w [bibliography-formatted? #f])
+  ((hash?) (boolean?) . ->* . string?)
   (string-append (if bibliography-formatted? (hash-ref w 'author-family) (hash-ref w 'author-given))
                  (if bibliography-formatted? ", " " ")
                  (if bibliography-formatted? (hash-ref w 'author-given) (hash-ref w 'author-family))
@@ -752,6 +777,7 @@
       ,(hash-ref w 'journal)
       ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
@@ -763,7 +789,11 @@
    (declare-work #:id "id1" #:type "article" #:author "Sancho McCann" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:short-form "McCann, \"Title\"")
    (check-equal? (get-elements (cite "id1")) '("Sancho McCann, “Title” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "id1"]]) "."))
    (declare-work #:id "id2" #:type "article" #:author "Sancho McCann" #:title "Title 2" #:journal "Journal" #:volume "1" #:issue "2" #:pages "501--503" #:year "2018" #:short-form "McCann, \"Title 2\"")
-   (check-equal? (get-elements (cite "id2")) '("Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))))
+   (check-equal? (get-elements (cite "id2")) '("Sancho McCann, “Title 2” (2018) 1:2 Journal 501" (span [[data-short-form-pre-placeholder "id2"]]) "."))
+   (declare-work #:id "kamara" #:type "article" #:author "Alvin Kamara" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com")
+   (check-equal? (get-elements (cite "kamara")) '("Alvin Kamara, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "kamara"]]) "."))
+   (declare-work #:id "lorde" #:type "article" #:author "Audrey Lorde" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com" #:display-url? #t)
+   (check-equal? (get-elements (cite "lorde")) '("Audrey Lorde, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal, online: <www.nfl.com>" (span [[data-short-form-pre-placeholder "lorde"]]) "."))))
 
 (define/contract (render-book-elements w pinpoint parenthetical bib-authors)
   (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
