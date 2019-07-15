@@ -47,9 +47,17 @@
 (define short-form-used? (make-hash))
 (define unidentified-work-count 0)
 
-(define/contract (bibliography-ids)
-  (-> (listof string?))
-  (hash-keys first-place-cited))
+(define/contract (bibliography-ids #:category [category #f])
+  (()(#:category (or/c "jurisprudence" "secondary" "legislation" "other" #f)) . ->* . (listof string?))
+  (define (create-category-filter category)
+    (case category
+      [("jurisprudence") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("legal-case" "legal-case-US")))]
+      [("secondary") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("article" "book" "magazine/news" "thesis" "proceedings" "unpublished")))]
+      [("legislation") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("bill" "statute" "debate")))]
+      [("other") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("custom")))]))
+  (if category
+      (filter (create-category-filter category) (hash-keys first-place-cited))
+      (hash-keys first-place-cited)))
 
 ; Accessor
 (define/contract (get-work-by-id id)

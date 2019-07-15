@@ -35,6 +35,9 @@ works and using them later within notes. @filepath{
  pollen.rkt} demonstrates the required integration calls
 described in @secref["integration"].
 
+I'm also using it for the project at @url{
+ https://github.com/sanchom/associate}.
+
 @section{User/author tags}
 
 These are tags/functions that the ultimate author of a
