@@ -416,6 +416,7 @@
                       #:author3-given [author3-given #f]
                       #:author3-family [author3-family #f]
                       #:journal [journal #f]
+                      #:edition [edition #f]
                       #:year [year #f] ; alias for "date" --- incompatible with date
                       #:date [date #f] ; alias for "year" --- incompatible with year
                       #:volume [volume #f]
@@ -467,6 +468,7 @@
           'author3-given (clean-param author3-given)
           'author3-family (clean-param author3-family)
           'journal (clean-param journal)
+          'edition (clean-param edition)
           'publication (clean-param publication)
           'year (if year year date)
           'volume volume
@@ -519,6 +521,7 @@
                      #:author3-given [author3-given #f]
                      #:author3-family [author3-family #f]
                      #:journal [journal #f]
+                     #:edition [edition #f]
                      #:year [year #f] ; alias for "date" --- incompatible with date
                      #:date [date #f] ; alias for "year" --- incompatible with year
                      #:volume [volume #f]
@@ -563,6 +566,7 @@
                 #:author3-given author3-given
                 #:author3-family author3-family
                 #:journal journal
+                #:edition edition
                 #:year year
                 #:date date
                 #:volume volume
@@ -780,7 +784,7 @@
       ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))) ; This is wrong. If there is a pinpoint not in a parenthetical, it needs to come before the short form.
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
@@ -803,6 +807,7 @@
     `(
       ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w bib-authors) ", "))
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
+      ,@(when-or-empty (hash-ref w 'edition) `(", " ,(hash-ref w 'edition) " ed"))
       " ("
       ,@(when-or-empty (hash-ref w 'publisher-location) `(,(hash-ref w 'publisher-location)))
       ,@(when-or-empty (and (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(": "))
