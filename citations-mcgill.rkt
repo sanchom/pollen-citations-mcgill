@@ -781,10 +781,11 @@
       ,(hash-ref w 'journal)
       ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))) ; This is wrong. If there is a pinpoint not in a parenthetical, it needs to come before the short form.
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
@@ -797,7 +798,15 @@
    (declare-work #:id "kamara" #:type "article" #:author "Alvin Kamara" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com")
    (check-equal? (get-elements (cite "kamara")) '("Alvin Kamara, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "kamara"]]) "."))
    (declare-work #:id "lorde" #:type "article" #:author "Audrey Lorde" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com" #:display-url? #t)
-   (check-equal? (get-elements (cite "lorde")) '("Audrey Lorde, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal, online: <www.nfl.com>" (span [[data-short-form-pre-placeholder "lorde"]]) "."))))
+   (check-equal? (get-elements (cite "lorde")) '("Audrey Lorde, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal, online: <www.nfl.com>" (span [[data-short-form-pre-placeholder "lorde"]]) "."))
+   (declare-work #:id "hohfeld" #:type "article" #:author-given "Wesley Newcomb" #:author-family "Hohfeld"
+                 #:title "The Relations between Equity and Law" #:year "1913" #:journal "Mich L Rev" #:volume "11" #:issue "8" #:first-page "537")
+   (check-equal? (get-elements (cite "hohfeld"))
+                 '("Wesley Newcomb Hohfeld, “The Relations between Equity and Law” (1913) 11:8 Mich L Rev 537" (span [[data-short-form-pre-placeholder "hohfeld"]]) "."))
+   (check-equal? (get-elements (cite "hohfeld" #:pinpoint "page 538"))
+                 '("Wesley Newcomb Hohfeld, “The Relations between Equity and Law” (1913) 11:8 Mich L Rev 537 at 538" (span [[data-short-form-pre-placeholder "hohfeld"]]) "."))
+   (check-equal? (get-elements (cite "hohfeld" #:pinpoint "page 538" #:parenthetical "on the history of the Chancery Courts in England"))
+                 '("Wesley Newcomb Hohfeld, “The Relations between Equity and Law” (1913) 11:8 Mich L Rev 537" (span [[data-short-form-pre-placeholder "hohfeld"]]) " (on the history of the Chancery Courts in England at 538)."))))
 
 (define/contract (render-book-elements w pinpoint parenthetical bib-authors)
   (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
@@ -815,9 +824,10 @@
       ,@(when-or-empty (or (hash-ref w 'publisher-location) (hash-ref w 'publisher)) '(", "))
       ,(hash-ref w 'year)
       ")"
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
@@ -830,7 +840,15 @@
    (check-equal? (get-elements (cite "id3"))
                  '("Monique Mattei Ferraro & Eoghan Casey, "
                    (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
-                   " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))))
+                   " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) "."))
+   (check-equal? (get-elements (cite "id3" #:pinpoint "page ix"))
+              '("Monique Mattei Ferraro & Eoghan Casey, "
+                (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
+                " (Boston: Elsevier/Academic Press, 2005) at ix" (span [[data-short-form-pre-placeholder "id3"]]) "."))
+   (check-equal? (get-elements (cite "id3" #:pinpoint "page ix" #:parenthetical "\"some quotation\""))
+              '("Monique Mattei Ferraro & Eoghan Casey, "
+                (em "Investigating Child Exploitation and Pornography: The Internet, the Law and Forensic Science")
+                " (Boston: Elsevier/Academic Press, 2005)" (span [[data-short-form-pre-placeholder "id3"]]) " (\"some quotation\" at ix)."))))
 
 (define/contract (render-thesis-elements w pinpoint parenthetical bib-authors)
   (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
@@ -844,10 +862,12 @@
       ,(hash-ref w 'thesis-description) ", "
       ,(hash-ref w 'institution) ", "
       ,(hash-ref w 'year)
-      ") [unpublished]"
+      ")"
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
+      " [unpublished]"
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
@@ -880,9 +900,10 @@
       ,(hash-ref w 'year)
       ")"
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
@@ -911,10 +932,11 @@
      ,@(when-or-empty (hash-ref w 'description) `(,(hash-ref w 'description) ", "))
      ,(hash-ref w 'year)
      ")"
+     ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
      " [unpublished]"
      ,(short-form-pre-placeholder (hash-ref w 'id))
      ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-     ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+     ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
      ,@(when-or-empty parenthetical '(")")))))
 
 (module+ test
@@ -940,7 +962,7 @@
       ", "
       ,(hash-ref w 'citation)
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
-      ; If there is a parallel citation, put the pinpoint first.
+      ; Note that the pinpoint is attached to the main citation.
       ,@(when-or-empty (hash-ref w 'parallel-citation) `(", " ,(hash-ref w 'parallel-citation)))
       ,@(when-or-empty (hash-ref w 'case-judge) `(", " ,(hash-ref w 'case-judge)))
       ,(short-form-pre-placeholder (hash-ref w 'id))
@@ -1157,9 +1179,10 @@
       ,@(when-or-empty (hash-ref w 'issue) `(":" ,(hash-ref w 'issue)))
       ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
+      ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
-      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
       ,@(when-or-empty parenthetical '(")"))))
   (merge-successive-strings fragmented))
 
