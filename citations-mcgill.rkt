@@ -18,6 +18,8 @@
  ; Gets a bibliography-formatted citation.
  bib-entry
  bib-sort-value
+ ; Gets the short-form
+ short-form
 
  ; To be used in your Pollen module to let the citation system
  ; do the work it needs to do.
@@ -737,6 +739,19 @@
   (case type
     [("article" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
     [else (hash-ref w 'title)]))
+
+(define/contract (short-form id)
+  ((and/c string? declared-id?) . -> . txexpr-elements?)
+  (hash-ref (get-work-by-id id) 'short-form))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "jordan" #:type "legal-case" #:title "R v Jordan" #:short-form "*Jordan*" #:citation "2016 SCC 27")
+   (check-equal? (short-form "jordan") '((em "Jordan")))))
+   ; TODO: Make this the behaviour instead. Legal cases should default to italics for short form if there is no
+   ; formatting markup provided.
+   ; (declare-work #:id "jordan" #:type "legal-case" #:title "R v Jordan" #:short-form "Jordan" #:citation "2016 SCC 27")
+   ; (check-equal? (short-form "jordan") '((em "Jordan")))))
 
 (define/contract (format-authors w [bibliography-formatted? #f])
   ((hash?) (boolean?) . ->* . string?)
