@@ -388,6 +388,14 @@
          (merge-successive-strings (append '("“") (style-markedup-text (hash-ref work 'title)) '("”"))))]
     [else (raise-user-error "Can't create default short-forms for works of this type." work)]))
 
+(define/contract (default-short-form-undetermined? work)
+  (hash? . -> . boolean?)
+  (case (hash-ref work 'type)
+    [("legal-case" "legal-case-US" "statute" "bill") #f]
+    [("article" "thesis" "proceedings" "unpublished" "book") (not (hash-ref work 'author-family))]
+    [("magazine/news") (and (not (hash-ref work 'author-family)) (not (hash-ref work 'title)))]
+    [else #t]))
+
 (module+ test
   (test-begin
    (declare-work #:type "book" #:author "Peyton Manning" #:title "How to throw a football" #:year "2012" #:id "manning")
@@ -1257,8 +1265,7 @@
   (string? . -> . boolean?)
   (define work (hash-ref work-metadata id))
   (define short-form (hash-ref work 'short-form))
-  (define default (default-short-form work))
-  (not (equal? short-form default)))
+  (or (default-short-form-undetermined? work) (not (equal? short-form (default-short-form work)))))
 
 (module+ test
   (test-begin
@@ -1293,7 +1300,9 @@
            (string-contains? (attr-ref tx 'class) "full-form-citation"))
       (let* ([id (attr-ref tx 'data-citation-id)]
              [first-cite (if (hash-has-key? first-place-cited id) (hash-ref first-place-cited id) #f)]
-             [ibid (and first-cite (equal? (car most-recent-ibid-or-supra) id) (equal? (- footnote-number 1) (cdr most-recent-ibid-or-supra)))])
+             [ibid (and first-cite (equal? (car most-recent-ibid-or-supra) id)
+                        (or (equal? (- footnote-number 1) (cdr most-recent-ibid-or-supra))
+                            (equal? footnote-number (cdr most-recent-ibid-or-supra))))])
         (when (and first-cite (not ibid)) (hash-set! short-form-used? id #t))
         (when (not (hash-has-key? first-place-cited id)) (hash-set! first-place-cited id footnote-number))
         (set! most-recent-ibid-or-supra (cons id footnote-number))
