@@ -385,13 +385,15 @@
              (hash-ref work 'author-family)
              (hash-ref work 'author2-family)
              (hash-ref work 'author3-family)))
-         (style-markedup-text (hash-ref work 'title)))]
+         (merge-successive-strings (append '("“") (style-markedup-text (hash-ref work 'title)) '("”"))))]
     [else (raise-user-error "Can't create default short-forms for works of this type." work)]))
 
 (module+ test
   (test-begin
    (declare-work #:type "book" #:author "Peyton Manning" #:title "How to throw a football" #:year "2012" #:id "manning")
-   (check-equal? (hash-ref (hash-ref work-metadata "manning") 'short-form) `("Manning"))))
+   (check-equal? (hash-ref (hash-ref work-metadata "manning") 'short-form) `("Manning"))
+   (declare-work #:type "magazine/news" #:title "title with some *italicized* portion" #:id "title-only-work")
+   (check-equal? (hash-ref (hash-ref work-metadata "title-only-work") 'short-form) `("“title with some " (em "italicized") " portion”"))))
   ; (check-equal? (default-short-form "book" "McCann" #f #f "Title") `("McCann"))
   ; (check-equal? (default-short-form "article" "McCann" "Lowe" #f "Title") `("McCann & Lowe"))
   ; (check-equal? (default-short-form "article" "McCann" "Lowe" "Muja" "Title") `("McCann, Lowe & Muja")))
