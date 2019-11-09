@@ -73,6 +73,26 @@
 (define-syntax-rule (when-or-empty condition lst)
   (if condition lst '()))
 
+(define (string-is-affirmative? x)
+  (define (member? v lst)
+    (list? (member v lst)))
+  (member? (string-downcase x) '("yes" "true" "y" "t" "#t")))
+
+(module+ test
+  (check-true (string-is-affirmative? "yes"))
+  (check-true (string-is-affirmative? "Yes"))
+  (check-true (string-is-affirmative? "true"))
+  (check-true (string-is-affirmative? "True"))
+  (check-true (string-is-affirmative? "#t"))
+  (check-true (string-is-affirmative? "#T"))
+  (check-true (string-is-affirmative? "y"))
+  (check-true (string-is-affirmative? "Y"))
+  (check-true (string-is-affirmative? "t"))
+  (check-true (string-is-affirmative? "T"))
+  (check-false (string-is-affirmative? "No"))
+  (check-false (string-is-affirmative? ""))
+  (check-false (string-is-affirmative? "#F")))
+
 (define/contract (merge-successive-strings elements)
   (txexpr-elements? . -> . txexpr-elements?)
   (define (conditional-merge element current-list)
@@ -427,6 +447,7 @@
                       #:author2-family [author2-family #f]
                       #:author3-given [author3-given #f]
                       #:author3-family [author3-family #f]
+                      #:etal? [etal? ""] ; will be treated as false unless an affirmative string is given
                       #:journal [journal #f]
                       #:edition [edition #f]
                       #:year [year #f] ; alias for "date" --- incompatible with date
@@ -479,6 +500,7 @@
           'author2-family (clean-param author2-family)
           'author3-given (clean-param author3-given)
           'author3-family (clean-param author3-family)
+          'etal? (clean-param etal?)
           'journal (clean-param journal)
           'edition (clean-param edition)
           'publication (clean-param publication)
@@ -532,6 +554,7 @@
                      #:author2-family [author2-family #f]
                      #:author3-given [author3-given #f]
                      #:author3-family [author3-family #f]
+                     #:etal? [etal? ""]
                      #:journal [journal #f]
                      #:edition [edition #f]
                      #:year [year #f] ; alias for "date" --- incompatible with date
@@ -577,6 +600,7 @@
                 #:author2-family author2-family
                 #:author3-given author3-given
                 #:author3-family author3-family
+                #:etal? etal?
                 #:journal journal
                 #:edition edition
                 #:year year
@@ -718,6 +742,7 @@
           [data-citation-judge ,(if c-judge c-judge "false")]
           [data-citation-speaker ,(if c-speaker c-speaker "false")]
           [data-citation-signal ,(if c-signal c-signal "false")]
+          [data-citation-terminal ,terminal]
           ]
          ,@(merge-successive-strings
             `(
@@ -748,6 +773,8 @@
   (define type (hash-ref w 'type))
   (case type
     [("article" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
+    [("debate") (hash-ref w 'proceedings)]
+    [("custom") (hash-ref w 'custom-format)]
     [else (hash-ref w 'title)]))
 
 (define/contract (short-form id)
@@ -774,7 +801,8 @@
                  (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
                  (if (hash-ref w 'author3-family #f) " & " "")
                  (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
-                 (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")))
+                 (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")
+                 (if (string-is-affirmative? (hash-ref w 'etal? "")) " et al" "")))
 
 (module+ test
   (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) "Sancho McCann")
@@ -782,7 +810,8 @@
                                       'author2-given "David G" 'author2-family "Lowe")) "Sancho McCann & David G Lowe")
   (check-equal? (format-authors (hash 'author-given "Natasha" 'author-family "Novac"
                                       'author2-given "Bailey" 'author2-family "Fox"
-                                      'author3-given "Nora" 'author3-family "Parker")) "Natasha Novac, Bailey Fox & Nora Parker"))
+                                      'author3-given "Nora" 'author3-family "Parker")) "Natasha Novac, Bailey Fox & Nora Parker")
+  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann" 'etal? "yes")) "Sancho McCann et al"))
 
 (define (short-form-pre-placeholder id)
   `(span [[data-short-form-pre-placeholder ,id]]))
@@ -1312,14 +1341,16 @@
                             #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
                             #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
                             #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
-                            #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal))
+                            #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal)
+                            #:terminal (extract-from-our-custom-data-attrs tx 'data-citation-terminal))
             ; If ibid was not appropriate, but there is a first-cite, then supra must be required.
             (if first-cite (cite-supra id first-cite
                                        #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
                                        #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
                                        #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
                                        #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
-                                       #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal))
+                                       #:signal (extract-from-our-custom-data-attrs tx 'data-citation-signal)
+                                       #:terminal (extract-from-our-custom-data-attrs tx 'data-citation-terminal))
                 tx)))
       tx))
 
