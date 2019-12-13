@@ -55,7 +55,7 @@
     (case category
       [("jurisprudence") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("legal-case" "legal-case-US")))]
       [("secondary") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("article" "book" "magazine/news" "thesis" "proceedings" "unpublished")))]
-      [("legislation") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("bill" "statute" "debate")))]
+      [("legislation") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("bill" "statute" "regulation" "debate")))]
       [("other") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("custom")))]))
   (if category
       (filter (create-category-filter category) (hash-keys first-place-cited))
@@ -120,7 +120,7 @@
 (define/contract (valid-work-type? type)
   (string? . -> . boolean?)
   (if (member type '("article" "thesis" "proceedings" "unpublished" "legal-case" "legal-case-US"
-                               "bill" "statute" "debate" "book" "magazine/news" "custom"))
+                               "bill" "statute" "regulation" "debate" "book" "magazine/news" "custom"))
       #t #f))
 
 (module+ test
@@ -290,6 +290,7 @@
     [("legal-case-US") (validate-legal-case-US w)]
     [("bill") (validate-bill w)]
     [("statute") (validate-statute w)]
+    [("regulation") (validate-regulation w)]
     [("debate") (validate-debate w)]
     [("book") (validate-book w)]
     [("magazine/news") (validate-magazine/news w)]
@@ -353,6 +354,9 @@
 (define (validate-statute w)
   (validate-mandatory-elements "statute" w '(title volume year chapter)))
 
+(define (validate-regulation w)
+  (validate-mandatory-elements "regulation" w '(title volume year)))
+
 (define (validate-debate w)
   (validate-mandatory-elements "debate" w '(jurisdiction legislative-body year))
   ; These next two elements must go together. They must either both be specified
@@ -390,7 +394,7 @@
 (define/contract (default-short-form work)
   (hash? . -> . txexpr-elements?)
   (case (hash-ref work 'type)
-    [("legal-case" "legal-case-US" "statute") `((em ,(hash-ref work 'title)))]
+    [("legal-case" "legal-case-US" "statute" "regulation") `((em ,(hash-ref work 'title)))]
     [("bill") `(,(string-append "Bill " (hash-ref work 'number)))]
     [("article" "thesis" "proceedings" "unpublished" "book")
      (if (hash-ref work 'author-family)
@@ -411,7 +415,7 @@
 (define/contract (default-short-form-undetermined? work)
   (hash? . -> . boolean?)
   (case (hash-ref work 'type)
-    [("legal-case" "legal-case-US" "statute" "bill") #f]
+    [("legal-case" "legal-case-US" "statute" "regulation" "bill") #f]
     [("article" "thesis" "proceedings" "unpublished" "book") (not (hash-ref work 'author-family))]
     [("magazine/news") (and (not (hash-ref work 'author-family)) (not (hash-ref work 'title)))]
     [else #t]))
@@ -461,8 +465,8 @@
                       #:case-judge [case-judge #f]
                       #:institution [institution #f]
                       #:legislative-body [legislative-body #f]
-                      #:number [number #f] ; for bills
-                      #:chapter [chapter #f] ; for statutes
+                      #:number [number #f] ; for bills and some regulations
+                      #:chapter [chapter #f] ; for statutes and some regulations
                       #:reading [reading #f] ; for legislative debates
                       #:bill-status [bill-status #f] ; a parenthetical at the end of bill's citation
                       #:eventual-statute [eventual-statute #f] ; additional detail for a bill that has passed
@@ -757,6 +761,7 @@
                   [("legal-case-US") (render-legal-case-US-elements w c-pinpoint c-parenthetical c-judge)]
                   [("bill") (render-bill-elements w c-pinpoint c-parenthetical)]
                   [("statute") (render-statute-elements w c-pinpoint c-parenthetical)]
+                  [("regulation") (render-regulation-elements w c-pinpoint c-parenthetical)]
                   [("debate") (render-debate-elements w c-pinpoint c-speaker)]
                   [("magazine/news") (render-magazine/news-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("custom") (render-custom-elements w c-pinpoint c-parenthetical c-judge)]
@@ -1171,6 +1176,38 @@
    (check-equal? (get-elements (cite "ITA" #:pinpoint "Section 18(1)(m)(iv)(c)"))
                  `((em "Income Tax Act") ", RSC 1985, c 1 (5th Supp), s 18(1)(m)(iv)(c)"
                                          (span [[data-short-form-pre-placeholder "ITA"]]) "."))))
+
+; TODO: Fill out the remainder of regulation formats from across Canada, dependent on the volume name.
+(define/contract (format-canada-regulation w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . string?)
+  (first (merge-successive-strings (if (equal? (hash-ref w 'volume) "CRC")
+                                       `("CRC, "
+                                         ,(hash-ref w 'chapter)
+                                         ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+                                         " (" (hash-ref w 'year) ")")
+                                       `("SOR/"
+                                         ,(hash-ref w 'year) "-" ,(hash-ref w 'number)
+                                         ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))))))))
+
+(define/contract (render-regulation-elements w pinpoint parenthetical)
+  (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
+  (define url (hash-ref w 'url))
+  (define title (hash-ref w 'title))
+  (define fragmented
+    `(
+      (em ,(if url `(a [[href ,url]] ,title) title))
+      ", "
+      ,(format-canada-regulation w pinpoint parenthetical)
+      ,(short-form-pre-placeholder (hash-ref w 'id))))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "BDRs" #:type "regulation" #:title "Broadcasting Distribution Regulations"
+                 #:volume "SOR" #:year "97" #:number "555")
+   (check-equal? (get-elements (cite "BDRs" #:pinpoint "Section 2"))
+                 `((em "Broadcasting Distribution Regulations") ", SOR/97-555, s 2"
+                                                                (span [[data-short-form-pre-placeholder "BDRs"]]) "."))))
 
 (define/contract (render-debate-elements w pinpoint speaker)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
