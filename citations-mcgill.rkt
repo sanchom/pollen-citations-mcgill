@@ -119,7 +119,7 @@
 
 (define/contract (valid-work-type? type)
   (string? . -> . boolean?)
-  (if (member type '("article" "thesis" "proceedings" "unpublished" "legal-case" "legal-case-US"
+  (if (member type '("article" "chapter" "thesis" "proceedings" "unpublished" "legal-case" "legal-case-US"
                                "bill" "statute" "regulation" "debate" "book" "magazine/news" "custom"))
       #t #f))
 
@@ -283,6 +283,7 @@
   (validate-short-form w)
   (case (hash-ref w 'type)
     [("article") (validate-article w)]
+    [("chapter") (validate-chapter w)]
     [("thesis") (validate-thesis w)]
     [("proceedings") (validate-proceedings w)]
     [("unpublished") (validate-unpublished w)]
@@ -335,6 +336,9 @@
 
 (define (validate-article w)
   (validate-mandatory-elements "article" w '(title author-family author-given journal volume)))
+
+(define (validate-chapter w)
+  (validate-mandatory-elements "chapter" w '(title author-family author-given in-book first-page)))
 
 (define (validate-book w)
   (validate-mandatory-elements "book" w '(title year)))
@@ -390,13 +394,13 @@
      ,@(when-or-empty (and author2 author3) `(", " ,author2))
      ,@(when-or-empty author3 `(" & " ,author3)))))
 
-; "article" "thesis" "proceedings" "unpublished" "debate" "book" "magazine/news"
+; "article" "chapter" "thesis" "proceedings" "unpublished" "debate" "book" "magazine/news"
 (define/contract (default-short-form work)
   (hash? . -> . txexpr-elements?)
   (case (hash-ref work 'type)
     [("legal-case" "legal-case-US" "statute" "regulation") `((em ,(hash-ref work 'title)))]
     [("bill") `(,(string-append "Bill " (hash-ref work 'number)))]
-    [("article" "thesis" "proceedings" "unpublished" "book")
+    [("article" "chapter" "thesis" "proceedings" "unpublished" "book")
      (if (hash-ref work 'author-family)
          `(,(build-author-based-short-form
              (hash-ref work 'author-family)
@@ -416,7 +420,7 @@
   (hash? . -> . boolean?)
   (case (hash-ref work 'type)
     [("legal-case" "legal-case-US" "statute" "regulation" "bill") #f]
-    [("article" "thesis" "proceedings" "unpublished" "book") (not (hash-ref work 'author-family))]
+    [("article" "chapter" "thesis" "proceedings" "unpublished" "book") (not (hash-ref work 'author-family))]
     [("magazine/news") (and (not (hash-ref work 'author-family)) (not (hash-ref work 'title)))]
     [else #t]))
 
@@ -451,7 +455,9 @@
                       #:author2-family [author2-family #f]
                       #:author3-given [author3-given #f]
                       #:author3-family [author3-family #f]
+                      #:editors? [editors? ""] ; will be treated as false unless an affirmative string is given
                       #:etal? [etal? ""] ; will be treated as false unless an affirmative string is given
+                      #:in-book [in-book #f] ; needed for chapter citations
                       #:journal [journal #f]
                       #:edition [edition #f]
                       #:year [year #f] ; alias for "date" --- incompatible with date
@@ -504,7 +510,9 @@
           'author2-family (clean-param author2-family)
           'author3-given (clean-param author3-given)
           'author3-family (clean-param author3-family)
+          'editors? (clean-param editors?)
           'etal? (clean-param etal?)
+          'in-book (clean-param in-book)
           'journal (clean-param journal)
           'edition (clean-param edition)
           'publication (clean-param publication)
@@ -558,7 +566,9 @@
                      #:author2-family [author2-family #f]
                      #:author3-given [author3-given #f]
                      #:author3-family [author3-family #f]
+                     #:editors? [editors? ""]
                      #:etal? [etal? ""]
+                     #:in-book [in-book #f]
                      #:journal [journal #f]
                      #:edition [edition #f]
                      #:year [year #f] ; alias for "date" --- incompatible with date
@@ -604,7 +614,9 @@
                 #:author2-family author2-family
                 #:author3-given author3-given
                 #:author3-family author3-family
+                #:editors? editors?
                 #:etal? etal?
+                #:in-book in-book
                 #:journal journal
                 #:edition edition
                 #:year year
@@ -660,11 +672,13 @@
   (check-equal? (style-markedup-text "multiple *italics* sections *in* title") '("multiple " (em "italics") " sections " (em "in") " title"))
   )
 
-(define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
-  (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
+(define/contract (cite-ibid id #:pinpoint [pinpoint #f] #:chapter-first-page [chapter-first-page #f]
+                            #:parenthetical [parenthetical #f] #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
+  (((and/c string? declared-id?)) (#:pinpoint (or/c string? #f) #:chapter-first-page (or/c string? #f) #:parenthetical (or/c string? #f)
                                    #:judge (or/c string? #f) #:speaker (or/c string? #f)
                                    #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
+  (define c-chapter-first-page (clean-param chapter-first-page))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
   (define c-speaker (clean-param speaker))
@@ -675,6 +689,7 @@
             `(
               ,@(when-or-empty c-signal `(,c-signal " "))
               ,(if c-signal `(em "ibid") `(em "Ibid"))
+              ,@(when-or-empty c-chapter-first-page `(", " ,c-chapter-first-page))
               ,@(when-or-empty c-parenthetical `(" (" ,c-parenthetical))
               ,@(when-or-empty c-pinpoint `(,(normalize-pinpoint c-pinpoint)))
               ,@(when-or-empty c-judge `(", " ,c-judge))
@@ -690,12 +705,13 @@
    (check-equal? (get-elements (cite-ibid "persons"))
                  `((em "Ibid") "."))))
 
-(define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:parenthetical [parenthetical #f]
+(define/contract (cite-supra id back-ref #:pinpoint [pinpoint #f] #:chapter-first-page [chapter-first-page #f] #:parenthetical [parenthetical #f]
                              #:judge [judge #f] #:speaker [speaker #f] #:signal [signal #f] #:terminal [terminal "."])
-  (((and/c string? declared-id?) exact-nonnegative-integer?) (#:pinpoint (or/c string? #f) #:parenthetical (or/c string? #f)
+  (((and/c string? declared-id?) exact-nonnegative-integer?) (#:pinpoint (or/c string? #f) #:chapter-first-page (or/c string? #f) #:parenthetical (or/c string? #f)
                                                               #:judge (or/c string? #f) #:speaker (or/c string? #f)
                                                               #:signal (or/c string? #f) #:terminal string?) . ->* . txexpr?)
   (define c-pinpoint (clean-param pinpoint))
+  (define c-chapter-first-page (clean-param chapter-first-page))
   (define c-parenthetical (clean-param parenthetical))
   (define c-judge (clean-param judge))
   (define c-speaker (clean-param speaker))
@@ -706,6 +722,7 @@
                                        ,@(when-or-empty c-signal `(,c-signal " "))
                                        ,@(if (list? (hash-ref w 'short-form)) (hash-ref w 'short-form) `(,(hash-ref w 'short-form))) ", "
                                        (em "supra") ,(format " note ~a" back-ref)
+                                       ,@(when-or-empty c-chapter-first-page `(", " ,c-chapter-first-page))
                                        ,@(when-or-empty c-parenthetical `(" (" ,c-parenthetical))
                                        ,@(when-or-empty c-pinpoint `(,(normalize-pinpoint c-pinpoint)))
                                        ,@(when-or-empty c-judge `(", " ,c-judge))
@@ -753,6 +770,7 @@
               ,@(when-or-empty c-signal `(,(format "~a " c-signal)))
               ,@(case (hash-ref w 'type)
                   [("article") (render-article-elements w c-pinpoint c-parenthetical bib-authors)]
+                  [("chapter") (render-chapter-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("book") (render-book-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("thesis") (render-thesis-elements w c-pinpoint c-parenthetical bib-authors)]
                   [("proceedings") (render-proceedings-elements w c-pinpoint c-parenthetical bib-authors)]
@@ -777,7 +795,7 @@
   (define w (hash-ref work-metadata id))
   (define type (hash-ref w 'type))
   (case type
-    [("article" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
+    [("article" "chapter" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
     [("debate") (hash-ref w 'proceedings)]
     [("custom") (hash-ref w 'custom-format)]
     [else (hash-ref w 'title)]))
@@ -797,6 +815,7 @@
 
 (define/contract (format-authors w [bibliography-formatted? #f])
   ((hash?) (boolean?) . ->* . string?)
+  (define multiple-authors? (hash-ref w 'author2-given #f))
   (string-append (if bibliography-formatted? (hash-ref w 'author-family) (hash-ref w 'author-given))
                  (if bibliography-formatted? ", " " ")
                  (if bibliography-formatted? (hash-ref w 'author-given) (hash-ref w 'author-family))
@@ -807,7 +826,9 @@
                  (if (hash-ref w 'author3-family #f) " & " "")
                  (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
                  (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")
-                 (if (string-is-affirmative? (hash-ref w 'etal? "")) " et al" "")))
+                 (if (string-is-affirmative? (hash-ref w 'etal? "")) " et al" "")
+                 (if (string-is-affirmative? (hash-ref w 'editors? "")) ", ed" "")
+                 (if (and (string-is-affirmative? (hash-ref w 'editors? "")) multiple-authors?) "s" "")))
 
 (module+ test
   (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) "Sancho McCann")
@@ -816,7 +837,10 @@
   (check-equal? (format-authors (hash 'author-given "Natasha" 'author-family "Novac"
                                       'author2-given "Bailey" 'author2-family "Fox"
                                       'author3-given "Nora" 'author3-family "Parker")) "Natasha Novac, Bailey Fox & Nora Parker")
-  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann" 'etal? "yes")) "Sancho McCann et al"))
+  (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann" 'etal? "yes")) "Sancho McCann et al")
+  (check-equal? (format-authors (hash 'author-given "Colleen M" 'author-family "Flood"
+                                      'author2-given "Lorne" 'author2-family "Sossin" 'editors? "yes"))
+                "Colleen M Flood & Lorne Sossin, eds"))
 
 (define (short-form-pre-placeholder id)
   `(span [[data-short-form-pre-placeholder ,id]]))
@@ -867,8 +891,61 @@
    (check-equal? (get-elements (cite "hohfeld" #:pinpoint "page 538" #:parenthetical "on the history of the Chancery Courts in England"))
                  '("Wesley Newcomb Hohfeld, “The Relations between Equity and Law” (1913) 11:8 Mich L Rev 537" (span [[data-short-form-pre-placeholder "hohfeld"]]) " (on the history of the Chancery Courts in England at 538)."))))
 
-(define/contract (render-book-elements w pinpoint parenthetical bib-authors)
+(define/contract (render-chapter-elements w pinpoint parenthetical bib-authors)
   (hash? (or/c string? #f) (or/c string? #f) boolean? . -> . txexpr-elements?)
+  (define title-elements (style-markedup-text (hash-ref w 'title)))
+  (define fragmented
+    `(
+      ,(format-authors w bib-authors)
+      ", “"
+      ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
+      "”"
+      ,(short-form-pre-placeholder (hash-ref w 'id))
+      " in "
+      (span [[class "bibliography-entry full-form-citation"]
+             [data-citation-id ,(hash-ref w 'in-book)]
+             [data-citation-pinpoint "false"]
+             [data-citation-chapter-first-page ,(hash-ref w 'first-page)]
+             [data-citation-parenthetical "false"]
+             [data-citation-judge "false"]
+             [data-citation-speaker "false"]
+             [data-citation-signal "false"]
+             [data-citation-terminal ""]
+             ]
+            ,@(render-book-elements (get-work-by-id (hash-ref w 'in-book)) #f #f #f (hash-ref w 'first-page)))
+      ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+      ))
+  (merge-successive-strings fragmented))
+
+(module+ test
+  (test-begin
+   (declare-work #:id "Flood" #:type "book" #:title "Administrative Law in Context"
+                 #:author-given "Colleen M" #:author-family "Flood" #:author2-given "Lorne" #:author2-family "Sossin" #:editors? "yes"
+                 #:year "2018" #:edition "3rd" #:publisher "Emond" #:publisher-location "Toronto")
+   (declare-work #:id "Wildeman" #:type "chapter" #:title "Making Sense of Reasonableness" #:author "Sheila Wildeman"
+                 #:in-book "Flood" #:first-page "437")
+   (check-equal? (get-elements (cite "Wildeman" #:pinpoint "443"))
+                 '("Sheila Wildeman, “Making Sense of Reasonableness”"
+                   (span [[data-short-form-pre-placeholder "Wildeman"]])
+                   " in "
+                   (span ((class "bibliography-entry full-form-citation")
+                          (data-citation-id "Flood")
+                          (data-citation-pinpoint "false")
+                          (data-citation-chapter-first-page "437")
+                          (data-citation-parenthetical "false")
+                          (data-citation-judge "false")
+                          (data-citation-speaker "false")
+                          (data-citation-signal "false")
+                          (data-citation-terminal ""))
+                         "Colleen M Flood & Lorne Sossin, eds, "
+                         (em "Administrative Law in Context") ", 3rd ed (Toronto: Emond, 2018) 437"
+                         (span [[data-short-form-pre-placeholder "Flood"]]))
+                   " at 443."))))
+
+; chapter-first-page is a special element, only used when a book is cited as part of a chapter's
+; citation
+(define/contract (render-book-elements w pinpoint parenthetical bib-authors [chapter-first-page #f])
+  (->* (hash? (or/c string? #f) (or/c string? #f) boolean?) ((or/c string? #f)) txexpr-elements?)
   (define title-elements (style-markedup-text (hash-ref w 'title)))
   ; TODO: Title style for books needs to flip if there is emphasis in the title.
   (define fragmented
@@ -884,6 +961,7 @@
       ,(hash-ref w 'year)
       ")"
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty chapter-first-page `(" " ,chapter-first-page))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -1359,7 +1437,7 @@
   (txexpr? exact-nonnegative-integer? . -> . txexpr?)
 
   (define (extract-from-our-custom-data-attrs tx key)
-    (define value (attr-ref tx key))
+    (define value (attr-ref tx key "false"))
     (if (equal? value "false") #f value))
 
   (if (and (attrs-have-key? tx 'class)
@@ -1375,6 +1453,7 @@
         ; If this work was previous cited, take its full-form citation and replace it with an ibid or supra.
         (if ibid (cite-ibid id
                             #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
+                            #:chapter-first-page (extract-from-our-custom-data-attrs tx 'data-citation-chapter-first-page)
                             #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
                             #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
                             #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
@@ -1383,6 +1462,7 @@
             ; If ibid was not appropriate, but there is a first-cite, then supra must be required.
             (if first-cite (cite-supra id first-cite
                                        #:pinpoint (extract-from-our-custom-data-attrs tx 'data-citation-pinpoint)
+                                       #:chapter-first-page (extract-from-our-custom-data-attrs tx 'data-citation-chapter-first-page)
                                        #:parenthetical (extract-from-our-custom-data-attrs tx 'data-citation-parenthetical)
                                        #:judge (extract-from-our-custom-data-attrs tx 'data-citation-judge)
                                        #:speaker (extract-from-our-custom-data-attrs tx 'data-citation-speaker)
