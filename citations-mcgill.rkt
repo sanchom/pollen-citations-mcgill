@@ -1258,14 +1258,22 @@
 ; TODO: Fill out the remainder of regulation formats from across Canada, dependent on the volume name.
 (define/contract (format-canada-regulation w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . string?)
-  (first (merge-successive-strings (if (equal? (hash-ref w 'volume) "CRC")
-                                       `("CRC, "
-                                         ,(hash-ref w 'chapter)
-                                         ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
-                                         " (" (hash-ref w 'year) ")")
-                                       `("SOR/"
-                                         ,(hash-ref w 'year) "-" ,(hash-ref w 'number)
-                                         ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))))))))
+  (first (merge-successive-strings (case (hash-ref w 'volume)
+                                     [("CRC") `("CRC, c "
+                                                ,(hash-ref w 'chapter)
+                                                ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint)))
+                                                " (" ,(hash-ref w 'year) ")")]
+                                     [("SOR") `("SOR/"
+                                                ; If the year is before 2000, only use the final two digits.
+                                                ,(if (>= (string->number (hash-ref w 'year)) 2000)
+                                                     (hash-ref w 'year)
+                                                     (substring (hash-ref w 'year) 2))
+                                                "-" ,(hash-ref w 'number)
+                                                ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))))]
+                                     [("BC Reg") `("BC Reg "
+                                                   ,(hash-ref w 'number) "/" ,(hash-ref w 'year)
+                                                   ,@(when-or-empty pinpoint `(,(normalize-pinpoint pinpoint))))]
+                                     [else (raise-user-error "Regulation volume not yet supported: " (hash-ref w 'volume))]))))
 
 (define/contract (render-regulation-elements w pinpoint parenthetical)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
@@ -1282,10 +1290,23 @@
 (module+ test
   (test-begin
    (declare-work #:id "BDRs" #:type "regulation" #:title "Broadcasting Distribution Regulations"
-                 #:volume "SOR" #:year "97" #:number "555")
+                 #:volume "SOR" #:year "1997" #:number "555")
    (check-equal? (get-elements (cite "BDRs" #:pinpoint "Section 2"))
                  `((em "Broadcasting Distribution Regulations") ", SOR/97-555, s 2"
-                                                                (span [[data-short-form-pre-placeholder "BDRs"]]) "."))))
+                                                                (span [[data-short-form-pre-placeholder "BDRs"]]) "."))
+   (declare-work #:id "LCLR-bugged" #:type "regulation" #:title "Liquor Control and Licensing Regulation"
+                 #:volume "BC Reeg" #:year "2016" #:number "241" #:short-form "LCLR")
+   (check-exn exn:fail? (λ () (cite "LCLR-bugged")))
+   (declare-work #:id "LCLR" #:type "regulation" #:title "Liquor Control and Licensing Regulation"
+                 #:volume "BC Reg" #:year "2016" #:number "241" #:short-form "Liquor Regulations")
+   (check-equal? (get-elements (cite "LCLR" #:pinpoint "section 9"))
+                 `((em "Liquor Control and Licensing Regulation") ", BC Reg 241/2016, s 9"
+                                                                  (span [[data-short-form-pre-placeholder "LCLR"]]) "."))
+   (declare-work #:id "MBRs" #:type "regulation" #:title "Migratory Birds Regulations"
+                 #:volume "CRC" #:chapter "1035" #:year "1978")
+   (check-equal? (get-elements (cite "MBRs" #:pinpoint "s 4"))
+                 `((em "Migratory Birds Regulations") ", CRC, c 1035, s 4 (1978)"
+                                                      (span [[data-short-form-pre-placeholder "MBRs"]]) "."))))
 
 (define/contract (render-debate-elements w pinpoint speaker)
   (hash? (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
