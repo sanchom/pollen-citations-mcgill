@@ -873,6 +873,21 @@
                 "Colleen M Flood & Lorne Sossin, eds")
   (check-equal? (format-authors (hash 'author-institutional "UNESCO")) "UNESCO"))
 
+(define/contract (format-url url)
+  (string? . -> . string?)
+  (string-append
+   ", online"
+   (if (or (string-contains? url "youtu.be")
+           (string-contains? url "youtube.com"))
+       " (video)"
+       "")
+   ": <"
+   (strip-http/https-protocol url)
+   ">"))
+
+(module+ test
+  (check-equal? (format-url "https://youtu.be/ndLcvzA6S3I") ", online (video): <youtu.be/ndLcvzA6S3I>"))
+
 (define (short-form-pre-placeholder id)
   `(span [[data-short-form-pre-placeholder ,id]]))
 
@@ -896,7 +911,7 @@
       ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -1401,7 +1416,7 @@
       ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -1428,7 +1443,7 @@
   `(
     ,@(style-markedup-text (string-replace (hash-ref w 'custom-format) "[[pinpoint]]" (if pinpoint (normalize-pinpoint pinpoint) "")))
     ,(short-form-pre-placeholder (hash-ref w 'id))
-    ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
+    ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
     ))
 
 (module+ test
