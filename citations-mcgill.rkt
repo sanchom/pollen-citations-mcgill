@@ -334,23 +334,32 @@
   (check-exn exn:fail? (λ () (validate-mandatory-elements "article" (hash 'key1 "value1" 'key2 "value2") '(key1 key2 key3))))
   )
 
+(define (work-has-author-or-die w)
+  (when (not (or (and (hash-ref w 'author-given #f) (hash-ref w 'author-family #f)) (hash-ref w 'author-institutional #f)))
+    (raise-user-error "failed to specify an author of any kind for this work: " w)))
+
 (define (validate-article w)
-  (validate-mandatory-elements "article" w '(title author-family author-given journal volume)))
+  (validate-mandatory-elements "article" w '(title journal volume))
+  (work-has-author-or-die w))
 
 (define (validate-chapter w)
-  (validate-mandatory-elements "chapter" w '(title author-family author-given in-book first-page)))
+  (validate-mandatory-elements "chapter" w '(title in-book first-page))
+  (work-has-author-or-die w))
 
 (define (validate-book w)
   (validate-mandatory-elements "book" w '(title year)))
 
 (define (validate-thesis w)
-  (validate-mandatory-elements "thesis" w '(title author-family author-given institution thesis-description year)))
+  (validate-mandatory-elements "thesis" w '(title institution thesis-description year))
+  (work-has-author-or-die w))
 
 (define (validate-proceedings w)
-  (validate-mandatory-elements "proceedings" w '(title author-family author-given proceedings year)))
+  (validate-mandatory-elements "proceedings" w '(title proceedings year))
+  (work-has-author-or-die w))
 
 (define (validate-unpublished w)
-  (validate-mandatory-elements "unpublished" w '(title author-family author-given year)))
+  (validate-mandatory-elements "unpublished" w '(title year))
+  (work-has-author-or-die w))
 
 (define (validate-bill w)
   (validate-mandatory-elements "bill" w '(number title legislative-body year)))
@@ -449,6 +458,7 @@
                       #:id id
                       #:title [title #f]
                       #:author [author #f] ; a shortcut for simple "author-given author-family" names --- incompatible with author-given / author-family
+                      #:author-institutional [author-institutional #f] ; if the author is an institution rather than a person
                       #:author-given [author-given #f]
                       #:author-family [author-family #f]
                       #:author2-given [author2-given #f]
@@ -495,6 +505,8 @@
   (define cleaned-id (clean-param id))
   (when (and author (or author-given author-family))
     (raise-user-error "You used #:author and either #:author-given or #:author-family. #:author is a substitute for the latter when the name is simple." `(,author ,author-given ,author-family)))
+  (when (and author-institutional (or author author-given author-family))
+    (raise-user-error "You used #:author-institutional, which precludes use of the other author fields #:author, #:author-given, #:author-family." `(,author-institutional)))
   (when (and year date)
     (raise-user-error "You specified both a year and a date. Use only one of these." `(,year ,date ,title)))
   (when (and pages first-page)
@@ -504,6 +516,7 @@
     (hash 'type type
           'id cleaned-id
           'title (clean-param title)
+          'author-institutional (clean-param author-institutional)
           'author-given (if author (get-given-from-author author) (clean-param author-given))
           'author-family (if author (get-family-from-author author) (clean-param author-family))
           'author2-given (clean-param author2-given)
@@ -560,6 +573,7 @@
 (define (format-work #:type type
                      #:title [title #f]
                      #:author [author #f] ; a shortcut for simple "author-given author-family" names --- incompatible with author-given / author-family
+                     #:author-institutional [author-institutional #f] ; used for institutional authors rather than people
                      #:author-given [author-given #f]
                      #:author-family [author-family #f]
                      #:author2-given [author2-given #f]
@@ -608,6 +622,7 @@
                 #:id id
                 #:title title
                 #:author author
+                #:author-institutional author-institutional
                 #:author-given author-given
                 #:author-family author-family
                 #:author2-given author2-given
@@ -816,19 +831,23 @@
 (define/contract (format-authors w [bibliography-formatted? #f])
   ((hash?) (boolean?) . ->* . string?)
   (define multiple-authors? (hash-ref w 'author2-given #f))
-  (string-append (if bibliography-formatted? (hash-ref w 'author-family) (hash-ref w 'author-given))
-                 (if bibliography-formatted? ", " " ")
-                 (if bibliography-formatted? (hash-ref w 'author-given) (hash-ref w 'author-family))
-                 (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
-                 (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
-                 (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
-                 (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
-                 (if (hash-ref w 'author3-family #f) " & " "")
-                 (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
-                 (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")
-                 (if (string-is-affirmative? (hash-ref w 'etal? "")) " et al" "")
-                 (if (string-is-affirmative? (hash-ref w 'editors? "")) ", ed" "")
-                 (if (and (string-is-affirmative? (hash-ref w 'editors? "")) multiple-authors?) "s" "")))
+  (string-append
+   (if (hash-ref w 'author-institutional #f)
+       (hash-ref w 'author-institutional #f)
+       (string-append
+        (if bibliography-formatted? (hash-ref w 'author-family) (hash-ref w 'author-given))
+        (if bibliography-formatted? ", " " ")
+        (if bibliography-formatted? (hash-ref w 'author-given) (hash-ref w 'author-family))))
+   (if (and (hash-ref w 'author2-family #f) (not (hash-ref w 'author3-family #f))) " & " "")
+   (if (and (hash-ref w 'author2-family #f) (hash-ref w 'author3-family #f)) ", " "")
+   (if (hash-ref w 'author2-given #f) (hash-ref w 'author2-given #f) "")
+   (if (hash-ref w 'author2-family #f) (format " ~a" (hash-ref w 'author2-family #f)) "")
+   (if (hash-ref w 'author3-family #f) " & " "")
+   (if (hash-ref w 'author3-given #f) (hash-ref w 'author3-given #f) "")
+   (if (hash-ref w 'author3-family #f) (format " ~a" (hash-ref w 'author3-family #f)) "")
+   (if (string-is-affirmative? (hash-ref w 'etal? "")) " et al" "")
+   (if (string-is-affirmative? (hash-ref w 'editors? "")) ", ed" "")
+   (if (and (string-is-affirmative? (hash-ref w 'editors? "")) multiple-authors?) "s" "")))
 
 (module+ test
   (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann")) "Sancho McCann")
@@ -840,7 +859,8 @@
   (check-equal? (format-authors (hash 'author-given "Sancho" 'author-family "McCann" 'etal? "yes")) "Sancho McCann et al")
   (check-equal? (format-authors (hash 'author-given "Colleen M" 'author-family "Flood"
                                       'author2-given "Lorne" 'author2-family "Sossin" 'editors? "yes"))
-                "Colleen M Flood & Lorne Sossin, eds"))
+                "Colleen M Flood & Lorne Sossin, eds")
+  (check-equal? (format-authors (hash 'author-institutional "UNESCO")) "UNESCO"))
 
 (define (short-form-pre-placeholder id)
   `(span [[data-short-form-pre-placeholder ,id]]))
@@ -950,7 +970,7 @@
   ; TODO: Title style for books needs to flip if there is emphasis in the title.
   (define fragmented
     `(
-      ,@(when-or-empty (hash-ref w 'author-family) `(,(format-authors w bib-authors) ", "))
+      ,@(when-or-empty (or (hash-ref w 'author-family) (hash-ref w 'author-institutional)) `(,(format-authors w bib-authors) ", "))
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] (em ,@title-elements))) `((em ,@title-elements)))
       ,@(when-or-empty (hash-ref w 'edition) `(", " ,(hash-ref w 'edition) " ed"))
       " ("
