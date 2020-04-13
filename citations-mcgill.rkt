@@ -1370,6 +1370,7 @@
       ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -1395,7 +1396,9 @@
   (hash? (or/c string? #f) (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   `(
     ,@(style-markedup-text (string-replace (hash-ref w 'custom-format) "[[pinpoint]]" (if pinpoint (normalize-pinpoint pinpoint) "")))
-    ,(short-form-pre-placeholder (hash-ref w 'id))))
+    ,(short-form-pre-placeholder (hash-ref w 'id))
+    ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(", online: <" ,(strip-http/https-protocol (hash-ref w 'url)) ">"))
+    ))
 
 (module+ test
   (test-begin
