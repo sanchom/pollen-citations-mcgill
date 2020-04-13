@@ -158,7 +158,18 @@
   (check-true (pinpoint-is-pages? "1"))
   (check-true (pinpoint-is-pages? "1, 35")))
 
-(define (pinpoint-requires-at? str) (or (string-prefix? (strip-at str) "para") (pinpoint-is-pages? (strip-at str))))
+(define/contract (pinpoint-is-timestamp? str)
+  (string? . -> . boolean?)
+  (or (regexp-match? #px"\\d\\dh:\\d\\dm:\\d\\ds" str)
+      (regexp-match? #px"\\d\\dm:\\d\\ds" str)))
+
+(module+ test
+  (check-false (pinpoint-is-timestamp? "12"))
+  (check-false (pinpoint-is-timestamp? "s 12"))
+  (check-true (pinpoint-is-timestamp? "00h:12m:32s"))
+  (check-true (pinpoint-is-timestamp? "00m:33s")))
+
+(define (pinpoint-requires-at? str) (or (string-prefix? (strip-at str) "para") (pinpoint-is-pages? (strip-at str)) (pinpoint-is-timestamp? (strip-at str))))
 (define (pinpoint-requires-comma? str) (not (pinpoint-requires-at? str)))
 
 (define/contract (normalize-pinpoint pinpoint)
