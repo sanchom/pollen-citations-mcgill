@@ -1133,6 +1133,19 @@
                    (span [[data-short-form-pre-placeholder "McCann"]]) "."))))
 
 
+(define/contract (smush-jurisdiction jurisdiction)
+  (string? . -> . string?)
+  (define (all-caps? str)
+    (regexp-match-exact? #rx"([A-Z ]*)" str))
+  (if (all-caps? jurisdiction)
+      (string-replace jurisdiction " " "")
+      jurisdiction))
+
+(module+ test
+  (test-begin
+   (check-equal? (smush-jurisdiction "ON CA") "ONCA")
+   (check-equal? (smush-jurisdiction "ON Ct J (Gen Div)") "ON Ct J (Gen Div)")))
+
 (define/contract (render-legal-case-elements w pinpoint parenthetical judge)
   (hash? (or/c string? #f) (or/c string? #f) (or/c string? #f) . -> . txexpr-elements?)
   (define url (hash-ref w 'url))
@@ -1144,9 +1157,11 @@
                            (year-is-different? w)) `(" (" ,(hash-ref w 'year) ")"))
       ", "
       ,(hash-ref w 'citation)
+      ,@(when-or-empty (and (hash-ref w 'jurisdiction) (not (hash-ref w 'parallel-citation))) `(" (" ,(smush-jurisdiction (hash-ref w 'jurisdiction)) ")"))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
       ; Note that the pinpoint is attached to the main citation.
       ,@(when-or-empty (hash-ref w 'parallel-citation) `(", " ,(hash-ref w 'parallel-citation)))
+      ,@(when-or-empty (and (hash-ref w 'jurisdiction) (hash-ref w 'parallel-citation)) `(" (" ,(smush-jurisdiction (hash-ref w 'jurisdiction)) ")"))
       ,@(when-or-empty (hash-ref w 'case-judge) `(", " ,(hash-ref w 'case-judge)))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
@@ -1168,6 +1183,22 @@
    (check-equal? (get-elements (cite "Gordon" #:pinpoint "para 13"))
                  '((em "Gordon v Goertz") ", [1996] 2 SCR 27 at para 13, 134 DLR (4th) 321"
                                           (span [[data-short-form-pre-placeholder "Gordon"]]) "."))
+   (declare-work #:id "Neudorf" #:type "legal-case" #:title "Neudorf v Nettwerk Productions Ltd"
+                 #:citation "[2000] 3 WWR 522" #:parallel-citation "3 CPR (4th) 129"
+                 #:jurisdiction "BC SC" #:short-form "Neudorf")
+   (check-equal? (get-elements (cite "Neudorf"))
+                 '((em "Neudorf v Nettwerk Productions Ltd")
+                   ", [2000] 3 WWR 522, 3 CPR (4th) 129 (BCSC)"
+                   (span [[data-short-form-pre-placeholder "Neudorf"]]) "."))
+   (declare-work #:id "Delrina" #:type "legal-case"
+                 #:title "Delrina Corp v Triolet Systems Inc"
+                 #:citation "58 OR (3d) 339" #:jurisdiction "ON CA"
+                 #:year "2002" #:short-form "*Delrina*")
+   (check-equal? (get-elements (cite "Delrina" #:pinpoint "paras 48--52"))
+                 '((em "Delrina Corp v Triolet Systems Inc")
+                   " (2002), 58 OR (3d) 339 (ONCA) at paras 48--52"
+                    (span [[data-short-form-pre-placeholder "Delrina"]]) "."))
+
    ; See 3.6.2 for "cited to" rules; these are not context-free. They depend on whether
    ; the first occurrence had a pinpoint and whether the work is ever pinpointed later.
    ; However, it is clear from the examples at 1.3.7 that the requirements for cited-to
