@@ -54,7 +54,7 @@
   (define (create-category-filter category)
     (case category
       [("jurisprudence") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("legal-case" "legal-case-US")))]
-      [("secondary") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("article" "book" "magazine/news" "thesis" "proceedings" "unpublished")))]
+      [("secondary") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("article" "chapter" "book" "magazine/news" "thesis" "proceedings" "unpublished")))]
       [("legislation") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("bill" "statute" "regulation" "debate")))]
       [("other") (λ (key) (member (hash-ref (hash-ref work-metadata key) 'type) '("custom")))]))
   (if category
@@ -350,7 +350,7 @@
     (raise-user-error "failed to specify an author of any kind for this work: " w)))
 
 (define (validate-article w)
-  (validate-mandatory-elements "article" w '(title journal volume))
+  (validate-mandatory-elements "article" w '(title journal))
   (work-has-author-or-die w))
 
 (define (validate-chapter w)
@@ -821,7 +821,10 @@
   (define w (hash-ref work-metadata id))
   (define type (hash-ref w 'type))
   (case type
-    [("article" "chapter" "book" "thesis" "proceedings" "unpublished" "magazine/news") (format-authors w #t)]
+    [("article" "chapter" "book" "thesis" "proceedings" "unpublished") (format-authors w #t)]
+    [("magazine/news") (if (or (hash-ref w 'author-institutional #f) (hash-ref w 'author-family))
+                           (format-authors w #t)
+                           (hash-ref w 'title))]
     [("debate") (hash-ref w 'proceedings)]
     [("custom") (hash-ref w 'custom-format)]
     [else (hash-ref w 'title)]))
@@ -903,8 +906,8 @@
       ,@(if (hash-ref w 'url) `((a [[href ,(hash-ref w 'url)]] ,@title-elements)) title-elements)
       "”"
       ,@(when-or-empty (hash-ref w 'comment-info) `(", " ,(hash-ref w 'comment-info) ", "))
-      ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ") "))
-      ,(hash-ref w 'volume)
+      ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
+      ,@(when-or-empty (hash-ref w 'volume) `(" " ,(hash-ref w 'volume)))
       ,@(when-or-empty (hash-ref w 'issue) `(":" ,(hash-ref w 'issue)))
       " "
       ,(hash-ref w 'journal)
