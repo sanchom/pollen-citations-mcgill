@@ -3,3 +3,5 @@
 Two projects that use this:
 * [associate](https://github.com/sanchom/associate)
 * [sanchom.github.io](https://github.com/sanchom/sanchom.github.io)
+
+A [demo](https://citations-demo.herokuapp.com/).
