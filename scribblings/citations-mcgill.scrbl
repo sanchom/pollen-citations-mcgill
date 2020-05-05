@@ -38,6 +38,8 @@ described in @secref["integration"].
 I'm also using it for the project at @url{
  https://github.com/sanchom/associate}.
 
+There is also an online demo that you can play with at @url{https://citations-demo.herokuapp.com/}.
+
 @section{User/author tags}
 
 These are tags/functions that the ultimate author of a
