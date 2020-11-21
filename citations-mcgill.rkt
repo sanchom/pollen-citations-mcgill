@@ -189,23 +189,22 @@
       [("sections" "ss.") "ss"]
       [else to-replace]))
   (define pinpoint-content (string-trim (string-replace pinpoint-without-at to-replace replacement #:all? #f)))
-  (define (should-be-plural? pinpoint)
-    (or (string-contains? pinpoint "--")
-        (string-contains? pinpoint ",")))
   (define (fix-plurals pinpoint)
+    (define (pinpoint-contains? x) (string-contains? pinpoint x))
     (let ([plurals '("ss" "cls" "paras")]
           [singulars '("s" "cl" "para")]
-          [pinpoint-contains? (lambda (x) (string-contains? pinpoint x))])
+          [should-be-plural? (or (string-contains? pinpoint "--")
+                                 (string-contains? pinpoint ","))])
       (cond
         [(ormap pinpoint-contains? plurals)
-         (if (should-be-plural? pinpoint)
+         (if should-be-plural?
              pinpoint
              (foldl (lambda (a b result) (string-replace result a b))
                     pinpoint
                     plurals
                     singulars))]
         [(ormap pinpoint-contains? singulars)
-         (if (should-be-plural? pinpoint)
+         (if should-be-plural?
              (foldl (lambda (a b result) (string-replace result a b))
                     pinpoint
                     singulars
