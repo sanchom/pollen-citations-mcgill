@@ -193,32 +193,25 @@
     (or (string-contains? pinpoint "--")
         (string-contains? pinpoint ",")))
   (define (fix-plurals pinpoint)
-    (cond
-      [(string-contains? pinpoint "paras")
-       (if (should-be-plural? pinpoint)
-           pinpoint
-           (string-replace pinpoint "paras" "para"))]
-      [(string-contains? pinpoint "para")
-       (if (should-be-plural? pinpoint)
-           (string-replace pinpoint "para" "paras")
-           pinpoint)]
-      [(string-contains? pinpoint "cls")
-       (if (should-be-plural? pinpoint)
-           pinpoint
-           (string-replace pinpoint "cls" "cl"))]
-      [(string-contains? pinpoint "cl")
-       (if (should-be-plural? pinpoint)
-           (string-replace pinpoint "cl" "cls")
-           pinpoint)]
-       [(string-contains? pinpoint "ss")
-       (if (should-be-plural? pinpoint)
-           pinpoint
-           (string-replace pinpoint "ss" "s"))]
-      [(string-contains? pinpoint "s")
-       (if (should-be-plural? pinpoint)
-           (string-replace pinpoint "s" "ss")
-           pinpoint)]
-      [else pinpoint]))
+    (let ([plurals '("ss" "cls" "paras")]
+          [singulars '("s" "cl" "para")]
+          [pinpoint-contains? (lambda (x) (string-contains? pinpoint x))])
+      (cond
+        [(ormap pinpoint-contains? plurals)
+         (if (should-be-plural? pinpoint)
+             pinpoint
+             (foldl (lambda (a b result) (string-replace result a b))
+                    pinpoint
+                    plurals
+                    singulars))]
+        [(ormap pinpoint-contains? singulars)
+         (if (should-be-plural? pinpoint)
+             (foldl (lambda (a b result) (string-replace result a b))
+                    pinpoint
+                    singulars
+                    plurals)
+             pinpoint)]
+        [else pinpoint])))
   (define fixed-plurals (fix-plurals pinpoint-content))
   (if (pinpoint-requires-at? cleaned-pinpoint) (format " at ~a" fixed-plurals) (format ", ~a" fixed-plurals)))
 
@@ -245,6 +238,8 @@
   (check-equal? (normalize-pinpoint "section 4--6") ", ss 4--6")
   (check-equal? (normalize-pinpoint "s. 1") ", s 1")
   (check-equal? (normalize-pinpoint "sections 1--3") ", ss 1--3"))
+  ; potential future failure condition: singular word with 2 s's
+  ;(check-equal? (normalize-pinpoint "lesson 1") "lesson 1"))
 
 
 (define/contract (strip-http/https-protocol url)
