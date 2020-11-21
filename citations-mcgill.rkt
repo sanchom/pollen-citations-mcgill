@@ -189,7 +189,38 @@
       [("sections" "ss.") "ss"]
       [else to-replace]))
   (define pinpoint-content (string-trim (string-replace pinpoint-without-at to-replace replacement #:all? #f)))
-  (if (pinpoint-requires-at? cleaned-pinpoint) (format " at ~a" pinpoint-content) (format ", ~a" pinpoint-content)))
+  (define (should-be-plural? pinpoint)
+    (or (string-contains? pinpoint "--")
+        (string-contains? pinpoint ",")))
+  (define (fix-plurals pinpoint)
+    (cond
+      [(string-contains? pinpoint "paras")
+       (if (should-be-plural? pinpoint)
+           pinpoint
+           (string-replace pinpoint "paras" "para"))]
+      [(string-contains? pinpoint "para")
+       (if (should-be-plural? pinpoint)
+           (string-replace pinpoint "para" "paras")
+           pinpoint)]
+      [(string-contains? pinpoint "cls")
+       (if (should-be-plural? pinpoint)
+           pinpoint
+           (string-replace pinpoint "cls" "cl"))]
+      [(string-contains? pinpoint "cl")
+       (if (should-be-plural? pinpoint)
+           (string-replace pinpoint "cl" "cls")
+           pinpoint)]
+       [(string-contains? pinpoint "ss")
+       (if (should-be-plural? pinpoint)
+           pinpoint
+           (string-replace pinpoint "ss" "s"))]
+      [(string-contains? pinpoint "s")
+       (if (should-be-plural? pinpoint)
+           (string-replace pinpoint "s" "ss")
+           pinpoint)]
+      [else pinpoint]))
+  (define fixed-plurals (fix-plurals pinpoint-content))
+  (if (pinpoint-requires-at? cleaned-pinpoint) (format " at ~a" fixed-plurals) (format ", ~a" fixed-plurals)))
 
 (module+ test
   (check-equal? (normalize-pinpoint "page 1") " at 1")
@@ -198,11 +229,23 @@
   (check-equal? (normalize-pinpoint "pages 2, 3") " at 2, 3")
   (check-equal? (normalize-pinpoint "p 1--3") " at 1--3")
   (check-equal? (normalize-pinpoint "paragraph 1") " at para 1")
-  ; TODO (check-equal? (normalize-pinpoint "paragraph 1--3") " at paras 1--3")
   (check-equal? (normalize-pinpoint "at clause 1") ", cl 1")
   (check-equal? (normalize-pinpoint "clause 1") ", cl 1")
   (check-equal? (normalize-pinpoint "cls 2--3") ", cls 2--3")
-  )
+  ; plural/singular agreement tests
+  (check-equal? (normalize-pinpoint "clauses 1") ", cl 1")
+  (check-equal? (normalize-pinpoint "cl 2--3") ", cls 2--3")
+  (check-equal? (normalize-pinpoint "cl 2") ", cl 2")
+  (check-equal? (normalize-pinpoint "cl 2,4") ", cls 2,4")
+  (check-equal? (normalize-pinpoint "clauses 2,4") ", cls 2,4")
+  (check-equal? (normalize-pinpoint "paragraph 1--3") " at paras 1--3")
+  (check-equal? (normalize-pinpoint "paras. 1--3") " at paras 1--3")
+  (check-equal? (normalize-pinpoint "paragraphs 3") " at para 3")
+  (check-equal? (normalize-pinpoint "ss. 4") ", s 4")
+  (check-equal? (normalize-pinpoint "section 4--6") ", ss 4--6")
+  (check-equal? (normalize-pinpoint "s. 1") ", s 1")
+  (check-equal? (normalize-pinpoint "sections 1--3") ", ss 1--3"))
+
 
 (define/contract (strip-http/https-protocol url)
   (string? . -> . string?)
