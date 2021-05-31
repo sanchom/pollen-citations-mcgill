@@ -914,19 +914,19 @@
   (check-equal? (format-authors (hash 'author-institutional "UNESCO")) "UNESCO"))
 
 (define/contract (format-url url)
-  (string? . -> . string?)
-  (string-append
-   ", online"
-   (if (or (string-contains? url "youtu.be")
-           (string-contains? url "youtube.com"))
-       " (video)"
-       "")
-   ": <"
-   (strip-http/https-protocol url)
-   ">"))
+  (string? . -> . txexpr-elements?)
+  `(,(string-append
+      ", online"
+      (if (or (string-contains? url "youtu.be")
+              (string-contains? url "youtube.com"))
+          " (video)"
+          "")
+      ": <")
+    (a [[href ,url]] ,(strip-http/https-protocol url))
+    ">"))
 
 (module+ test
-  (check-equal? (format-url "https://youtu.be/ndLcvzA6S3I") ", online (video): <youtu.be/ndLcvzA6S3I>"))
+  (check-equal? (format-url "https://youtu.be/ndLcvzA6S3I") '(", online (video): <" (a [[href "https://youtu.be/ndLcvzA6S3I"]] "youtu.be/ndLcvzA6S3I") ">")))
 
 (define (short-form-pre-placeholder id)
   `(span [[data-short-form-pre-placeholder ,id]]))
@@ -951,7 +951,7 @@
       ,@(when-or-empty (hash-ref w 'forthcoming) `(" [forthcoming in " ,(hash-ref w 'forthcoming) "]"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,@(format-url (hash-ref w 'url))))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -967,7 +967,7 @@
    (declare-work #:id "kamara" #:type "article" #:author "Alvin Kamara" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com")
    (check-equal? (get-elements (cite "kamara")) '("Alvin Kamara, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal" (span [[data-short-form-pre-placeholder "kamara"]]) "."))
    (declare-work #:id "lorde" #:type "article" #:author "Audrey Lorde" #:title "Title" #:journal "Journal" #:volume "1" #:year "2018" #:url "https://www.nfl.com" #:display-url? #t)
-   (check-equal? (get-elements (cite "lorde")) '("Audrey Lorde, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal, online: <www.nfl.com>" (span [[data-short-form-pre-placeholder "lorde"]]) "."))
+   (check-equal? (get-elements (cite "lorde")) '("Audrey Lorde, “" (a [[href "https://www.nfl.com"]] "Title") "” (2018) 1 Journal, online: <" (a [[href "https://www.nfl.com"]] "www.nfl.com") ">" (span [[data-short-form-pre-placeholder "lorde"]]) "."))
    (declare-work #:id "hohfeld" #:type "article" #:author-given "Wesley Newcomb" #:author-family "Hohfeld"
                  #:title "The Relations between Equity and Law" #:year "1913" #:journal "Mich L Rev" #:volume "11" #:issue "8" #:first-page "537")
    (check-equal? (get-elements (cite "hohfeld"))
@@ -1487,7 +1487,7 @@
       ,@(when-or-empty (hash-ref w 'year) `(" (" ,(hash-ref w 'year) ")"))
       ,@(when-or-empty (hash-ref w 'first-page) `(" " ,(hash-ref w 'first-page)))
       ,@(when-or-empty (and (not parenthetical) pinpoint) `(,(normalize-pinpoint pinpoint)))
-      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
+      ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,@(format-url (hash-ref w 'url))))
       ,(short-form-pre-placeholder (hash-ref w 'id))
       ,@(when-or-empty parenthetical `(" (" ,parenthetical))
       ,@(when-or-empty (and parenthetical pinpoint) `(,(normalize-pinpoint pinpoint)))
@@ -1514,7 +1514,7 @@
   `(
     ,@(style-markedup-text (string-replace (hash-ref w 'custom-format) "[[pinpoint]]" (if pinpoint (normalize-pinpoint pinpoint) "")))
     ,(short-form-pre-placeholder (hash-ref w 'id))
-    ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,(format-url (hash-ref w 'url))))
+    ,@(when-or-empty (and (hash-ref w 'display-url?) (hash-ref w 'url)) `(,@(format-url (hash-ref w 'url))))
     ))
 
 (module+ test
