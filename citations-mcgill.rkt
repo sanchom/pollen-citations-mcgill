@@ -328,7 +328,6 @@
 
 (define/contract (validate-work-or-die w)
   (hash? . -> . void?)
-  (validate-short-form w)
   (case (hash-ref w 'type)
     [("article") (validate-article w)]
     [("chapter") (validate-chapter w)]
@@ -361,13 +360,6 @@
                                                          'journal "A journal"
                                                          'volume "2"
                                                          'short-form "McCann")))))
-
-
-(define (validate-short-form w)
-  (define (short-form-taken s)
-    (ormap (λ (v) (equal? (hash-ref v 'short-form) s)) (hash-values work-metadata)))
-  (when (short-form-taken (hash-ref w 'short-form))
-    (raise-user-error "Attempt to use duplicate short-form: " `(,(hash-ref w 'short-form) ,w))))
 
 (define/contract (validate-mandatory-elements type w mandatory-elements)
   (valid-work-type? hash? (listof symbol?) . -> . void?)
